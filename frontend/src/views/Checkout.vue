@@ -28,14 +28,34 @@
       <div class="checkout-main">
         <div class="checkout-section">
           <h2 class="section-title">配送信息</h2>
-          <div class="form-group">
-            <label class="form-label">收货地址</label>
-            <textarea
-              v-model="formData.shipping_address"
-              class="form-textarea"
-              placeholder="请输入详细的收货地址，包括省、市、区、街道、门牌号等"
-              rows="3"
-            ></textarea>
+          <div class="address-list">
+            <label
+              v-for="address in addressList"
+              :key="address.id"
+              class="address-item"
+              :class="{ active: formData.address_id === address.id }"
+            >
+              <input
+                type="radio"
+                :value="address.id"
+                v-model="formData.address_id"
+                class="address-radio"
+                @change="selectAddress(address)"
+              />
+              <div class="address-info">
+                <div class="address-header">
+                  <span class="address-name">{{ address.name }}</span>
+                  <span class="address-phone">{{ address.phone }}</span>
+                  <span v-if="address.isDefault" class="address-tag">默认</span>
+                </div>
+                <div class="address-detail">{{ address.detail }}</div>
+              </div>
+              <div class="address-check">
+                <svg v-if="formData.address_id === address.id" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </div>
+            </label>
           </div>
         </div>
 
@@ -123,17 +143,25 @@
           </div>
           <button
             class="btn btn-primary btn-block btn-submit"
-            :disabled="isSubmitting || !formData.shipping_address.trim()"
+            :disabled="isSubmitting || !formData.address_id"
             @click="handleSubmitOrder"
           >
             <span v-if="isSubmitting">提交中...</span>
             <span v-else>提交订单</span>
           </button>
-          <p v-if="!formData.shipping_address.trim()" class="hint">
-            请填写收货地址
+          <p v-if="!formData.address_id" class="hint">
+            请选择收货地址
           </p>
         </div>
       </div>
+    </div>
+
+    <div v-if="showSuccessToast" class="success-toast">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"></circle>
+        <polyline points="16 12 10 18 6 14"></polyline>
+      </svg>
+      <span>{{ successMessage }}</span>
     </div>
   </div>
 </template>
@@ -154,7 +182,15 @@ const {
 } = useCart();
 
 const isSubmitting = ref(false);
+const showSuccessToast = ref(false);
+const successMessage = ref('');
 const defaultPlaceholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PHRleHQgeD0iNTAlIiB5PSI1NSUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNiIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPuWbvueJh+WKoOWvhueggTwvdGV4dD48L3N2Zz4=';
+
+const addressList = ref([
+  { id: 1, name: '张三', phone: '138****8888', detail: '北京市朝阳区建国路88号SOHO现代城A座1201室', isDefault: true },
+  { id: 2, name: '张三', phone: '138****8888', detail: '上海市浦东新区陆家嘴环路1000号恒生银行大厦20楼', isDefault: false },
+  { id: 3, name: '李四', phone: '139****9999', detail: '广州市天河区珠江新城华夏路10号富力中心2505室', isDefault: false }
+]);
 
 const paymentMethods = [
   { value: 'cod', name: '货到付款', desc: '送货上门时支付现金或刷卡', icon: '💵' },
@@ -163,18 +199,23 @@ const paymentMethods = [
 ];
 
 const formData = reactive({
-  shipping_address: '',
+  address_id: 1,
+  shipping_address: addressList.value[0].detail,
   payment_method: 'cod',
   remark: ''
 });
+
+const selectAddress = (address) => {
+  formData.shipping_address = address.detail;
+};
 
 const handleImageError = (event) => {
   event.target.src = defaultPlaceholder;
 };
 
 const handleSubmitOrder = async () => {
-  if (!formData.shipping_address.trim()) {
-    alert('请填写收货地址');
+  if (!formData.address_id || !formData.shipping_address.trim()) {
+    alert('请选择收货地址');
     return;
   }
 
@@ -188,8 +229,11 @@ const handleSubmitOrder = async () => {
 
     if (res.data.success) {
       await loadCart();
-      alert('订单提交成功！\n\n订单号：' + res.data.data.order_no);
-      router.push(`/orders/${res.data.data.id}`);
+      successMessage.value = '订单提交成功！正在跳转至订单详情...';
+      showSuccessToast.value = true;
+      setTimeout(() => {
+        router.push(`/orders/${res.data.data.id}`);
+      }, 1500);
     } else {
       alert(res.data.message || '订单提交失败');
     }
@@ -537,6 +581,114 @@ onMounted(() => {
 
   .page-title {
     font-size: 22px;
+  }
+}
+
+.address-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.address-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  border: 2px solid #e0e0e0;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.address-item:hover {
+  border-color: #667eea;
+  background: #f8f9ff;
+}
+
+.address-item.active {
+  border-color: #667eea;
+  background: #f0f4ff;
+}
+
+.address-radio {
+  width: 20px;
+  height: 20px;
+  accent-color: #667eea;
+  flex-shrink: 0;
+}
+
+.address-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.address-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.address-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #333;
+}
+
+.address-phone {
+  font-size: 14px;
+  color: #666;
+}
+
+.address-tag {
+  padding: 2px 8px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-size: 12px;
+  border-radius: 12px;
+}
+
+.address-detail {
+  font-size: 14px;
+  color: #555;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.address-check {
+  flex-shrink: 0;
+  color: #667eea;
+}
+
+.success-toast {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 30px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  color: #27ae60;
+  font-size: 16px;
+  font-weight: 500;
+  z-index: 9999;
+  animation: toastIn 0.3s ease-out;
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
   }
 }
 </style>

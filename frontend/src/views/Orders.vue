@@ -112,14 +112,6 @@
               {{ cancellingId === order.id ? '取消中...' : '取消订单' }}
             </button>
             <button
-              v-if="order.status === 'paid'"
-              class="btn btn-primary btn-sm"
-              :disabled="shippingId === order.id"
-              @click="handleShip(order)"
-            >
-              {{ shippingId === order.id ? '发货中...' : '发货' }}
-            </button>
-            <button
               v-if="order.status === 'shipped'"
               class="btn btn-primary btn-sm"
               :disabled="completingId === order.id"
@@ -166,7 +158,6 @@ const pageSize = ref(10);
 const total = ref(0);
 const cancellingId = ref(null);
 const payingId = ref(null);
-const shippingId = ref(null);
 const completingId = ref(null);
 const activeTab = ref('all');
 
@@ -174,7 +165,7 @@ const defaultPlaceholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZW
 
 const tabs = [
   { value: 'all', label: '全部订单' },
-  { value: 'pending', label: '待付款' },
+  { value: 'pending', label: '待支付' },
   { value: 'paid', label: '待发货' },
   { value: 'shipped', label: '待收货' },
   { value: 'completed', label: '已完成' },
@@ -185,9 +176,9 @@ const totalPages = computed(() => Math.ceil(total.value / pageSize.value));
 
 const getStatusText = (status) => {
   const statusMap = {
-    pending: '待付款',
-    paid: '已付款',
-    shipped: '已发货',
+    pending: '待支付',
+    paid: '待发货',
+    shipped: '待收货',
     completed: '已完成',
     cancelled: '已取消'
   };
@@ -263,7 +254,7 @@ const handlePay = async (order) => {
   try {
     const res = await updateOrderStatus(order.id, 'paid');
     if (res.data.success) {
-      alert('支付成功！');
+      alert('支付成功！系统将自动为您发货，请耐心等待。');
       loadOrders();
     } else {
       alert(res.data.message || '支付失败');
@@ -272,25 +263,6 @@ const handlePay = async (order) => {
     alert(err.response?.data?.message || '支付失败');
   } finally {
     payingId.value = null;
-  }
-};
-
-const handleShip = async (order) => {
-  if (!confirm('确定要发货吗？')) return;
-
-  shippingId.value = order.id;
-  try {
-    const res = await updateOrderStatus(order.id, 'shipped');
-    if (res.data.success) {
-      alert('发货成功！');
-      loadOrders();
-    } else {
-      alert(res.data.message || '发货失败');
-    }
-  } catch (err) {
-    alert(err.response?.data?.message || '发货失败');
-  } finally {
-    shippingId.value = null;
   }
 };
 
@@ -419,7 +391,7 @@ onMounted(() => {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg);
+  to { transform: rotate(360deg); }
 }
 
 .orders-list {

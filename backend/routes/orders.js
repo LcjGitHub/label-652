@@ -79,9 +79,27 @@ router.get('/:id', authMiddleware, async (ctx) => {
   };
 });
 
+const rollbackStock = async (orderId) => {
+  const orderItems = await allQuery(`
+    SELECT * FROM order_items WHERE order_id = ?
+  `, [orderId]);
+
+  for (const item of orderItems) {
+    await runQuery(`
+      UPDATE products SET stock = stock + ? WHERE id = ?
+    `, [item.quantity, item.product_id]);
+  }
+};
+
 router.post('/create', authMiddleware, async (ctx) => {
   const userId = ctx.state.user.id;
   const { shipping_address, payment_method = 'cod', remark = '' } = ctx.request.body;
+
+  if (!shipping_address || shipping_address.trim() === '') {
+    ctx.status = 400;
+    ctx.body = { success: false, message: '收货地址不能为空' };
+    return;
+  }
 
   const cartItems = await allQuery(`
     SELECT 
@@ -158,21 +176,13 @@ router.put('/:id/cancel', authMiddleware, async (ctx) => {
     return;
   }
 
-  if (order.status !== 'pending') {
+  if (order.status !== 'pending' && order.status !== 'paid') {
     ctx.status = 400;
     ctx.body = { success: false, message: '该订单状态不允许取消' };
     return;
   }
 
-  const orderItems = await allQuery(`
-    SELECT * FROM order_items WHERE order_id = ?
-  `, [id]);
-
-  for (const item of orderItems) {
-    await runQuery(`
-      UPDATE products SET stock = stock + ? WHERE id = ?
-    `, [item.quantity, item.product_id]);
-  }
+  await rollbackStock(id);
 
   await runQuery(`
     UPDATE orders SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ?
@@ -222,7 +232,7 @@ router.put('/:id/status', authMiddleware, async (ctx) => {
   if (!checkStatusTransition(order.status, status)) {
     ctx.status = 400;
     const statusTextMap = {
-      pending: '待付款',
+      pending: '待支付',
       paid: '待发货',
       shipped: '待收货',
       completed: '已完成',
@@ -235,9 +245,26 @@ router.put('/:id/status', authMiddleware, async (ctx) => {
     return;
   }
 
+  if (status === 'cancelled') {
+    await rollbackStock(id);
+  }
+
   await runQuery(`
     UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
   `, [status, id]);
+
+  if (status === 'paid') {
+    setTimeout(async () => {
+      try {
+        await runQuery(`
+          UPDATE orders SET status = 'shipped', updated_at = CURRENT_TIMESTAMP WHERE id = ?
+        `, [id]);
+        console.log(`订单 ${id} 已自动发货`);
+      } catch (err) {
+        console.error('自动发货失败:', err);
+      }
+    }, 3000);
+  }
 
   ctx.body = {
     success: true,

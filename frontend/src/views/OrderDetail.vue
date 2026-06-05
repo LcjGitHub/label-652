@@ -128,23 +128,7 @@
           立即支付 ¥{{ order.total_amount.toFixed(2) }}
         </button>
         <button
-          v-if="order.status === 'pending'"
-          class="btn btn-outline"
-          :disabled="isCancelling"
-          @click="handleCancel"
-        >
-          {{ isCancelling ? '取消中...' : '取消订单' }}
-        </button>
-        <button
-          v-if="order.status === 'paid'"
-          class="btn btn-primary"
-          :disabled="isUpdatingStatus"
-          @click="handleShip"
-        >
-          {{ isUpdatingStatus === 'ship' ? '发货中...' : '发货' }}
-        </button>
-        <button
-          v-if="order.status === 'paid'"
+          v-if="order.status === 'pending' || order.status === 'paid'"
           class="btn btn-outline"
           :disabled="isCancelling"
           @click="handleCancel"
@@ -193,9 +177,9 @@ const defaultPlaceholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZW
 
 const getStatusText = (status) => {
   const statusMap = {
-    pending: '待付款',
-    paid: '已付款',
-    shipped: '已发货',
+    pending: '待支付',
+    paid: '待发货',
+    shipped: '待收货',
     completed: '已完成',
     cancelled: '已取消'
   };
@@ -204,11 +188,11 @@ const getStatusText = (status) => {
 
 const getStatusDesc = (status) => {
   const descMap = {
-    pending: '请尽快完成支付，超时订单将自动取消',
-    paid: '商家正在准备商品，请耐心等待发货',
-    shipped: '商品已发出，请注意查收',
+    pending: '请尽快完成支付，支付成功后系统将自动发货',
+    paid: '支付成功！系统正在自动为您处理发货，请稍候...',
+    shipped: '商品已发出，请注意查收，确认收货后完成交易',
     completed: '感谢您的购买，欢迎再次光临',
-    cancelled: '订单已取消，如有疑问请联系客服'
+    cancelled: '订单已取消，库存已退回，如有疑问请联系客服'
   };
   return descMap[status] || '';
 };
@@ -261,32 +245,13 @@ const handlePay = async () => {
   try {
     const res = await updateOrderStatus(order.value.id, 'paid');
     if (res.data.success) {
-      alert('支付成功！');
+      alert('支付成功！系统将自动为您发货，请耐心等待。');
       loadOrder();
     } else {
       alert(res.data.message || '支付失败');
     }
   } catch (err) {
     alert(err.response?.data?.message || '支付失败');
-  }
-};
-
-const handleShip = async () => {
-  if (!confirm('确定要发货吗？')) return;
-
-  isUpdatingStatus.value = 'ship';
-  try {
-    const res = await updateOrderStatus(order.value.id, 'shipped');
-    if (res.data.success) {
-      alert('发货成功！');
-      loadOrder();
-    } else {
-      alert(res.data.message || '发货失败');
-    }
-  } catch (err) {
-    alert(err.response?.data?.message || '发货失败');
-  } finally {
-    isUpdatingStatus.value = null;
   }
 };
 
@@ -389,7 +354,7 @@ onMounted(() => {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg);
+  to { transform: rotate(360deg); }
 }
 
 .order-status-card {
