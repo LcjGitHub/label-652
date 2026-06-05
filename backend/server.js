@@ -3,6 +3,8 @@ const cors = require('@koa/cors');
 const bodyParser = require('koa-bodyparser');
 const net = require('net');
 const productsRouter = require('./routes/products');
+const authRouter = require('./routes/auth');
+const reviewsRouter = require('./routes/reviews');
 const healthRouter = require('./routes/health');
 const { dbReady } = require('./database');
 const config = require('../config');
@@ -34,6 +36,12 @@ app.use(async (ctx, next) => {
 
 app.use(healthRouter.routes());
 app.use(healthRouter.allowedMethods());
+
+app.use(authRouter.routes());
+app.use(authRouter.allowedMethods());
+
+app.use(reviewsRouter.routes());
+app.use(reviewsRouter.allowedMethods());
 
 app.use(productsRouter.routes());
 app.use(productsRouter.allowedMethods());
@@ -67,6 +75,8 @@ async function startServer() {
       console.log(`  地址: http://${HOST}:${PORT}`);
       console.log(`  健康检查: http://${HOST}:${PORT}/api/health`);
       console.log(`  商品接口: http://${HOST}:${PORT}/api/products`);
+      console.log(`  用户接口: http://${HOST}:${PORT}/api/auth`);
+      console.log(`  评价接口: http://${HOST}:${PORT}/api/reviews`);
       console.log('========================================');
     });
   } catch (err) {

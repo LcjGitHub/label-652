@@ -1,7 +1,9 @@
 const { createClient } = require('@libsql/client');
 const config = require('../config');
+const bcrypt = require('bcryptjs');
 
 const dbPath = config.database.path;
+const JWT_SECRET = config.jwt?.secret || 'your-secret-key-change-in-production';
 
 const db = createClient({
   url: `file:${dbPath}`
@@ -21,6 +23,34 @@ async function initDatabase() {
       image TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE,
+      email TEXT NOT NULL UNIQUE,
+      password TEXT NOT NULL,
+      avatar TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS reviews (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+      content TEXT,
+      images TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+      UNIQUE(user_id, product_id)
     )
   `);
 
@@ -58,7 +88,36 @@ async function initDatabase() {
         args: [p.name, p.desc, p.price, p.category, p.stock, p.image]
       });
     }
-    console.log('已插入示例数据');
+
+    const hashedPassword = await bcrypt.hash('123456', 10);
+    const sampleUsers = [
+      { username: '张三', email: 'zhangsan@example.com', password: hashedPassword, avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhangsan' },
+      { username: '李四', email: 'lisi@example.com', password: hashedPassword, avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=lisi' },
+      { username: '王五', email: 'wangwu@example.com', password: hashedPassword, avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=wangwu' },
+    ];
+
+    const userSql = 'INSERT INTO users (username, email, password, avatar) VALUES (?, ?, ?, ?)';
+    for (const u of sampleUsers) {
+      await db.execute({ sql: userSql, args: [u.username, u.email, u.password, u.avatar] });
+    }
+
+    const sampleReviews = [
+      { user_id: 1, product_id: 1, rating: 5, content: '非常好用，性能强劲，拍照效果也很棒！', images: '[]' },
+      { user_id: 2, product_id: 1, rating: 4, content: '整体不错，就是价格有点贵。', images: '[]' },
+      { user_id: 3, product_id: 1, rating: 5, content: 'iOS系统流畅，用了几个月一点都不卡。', images: '[]' },
+      { user_id: 1, product_id: 2, rating: 5, content: '做工精细，屏幕素质一流，办公娱乐两不误。', images: '[]' },
+      { user_id: 2, product_id: 2, rating: 4, content: '性能很强，续航也不错，就是有点重。', images: '[]' },
+      { user_id: 1, product_id: 5, rating: 4, content: '穿着很舒服，透气性好，就是颜色选择少了点。', images: '[]' },
+      { user_id: 3, product_id: 8, rating: 5, content: '牛奶很新鲜，味道醇厚，每天都喝。', images: '[]' },
+      { user_id: 2, product_id: 11, rating: 5, content: '台灯造型好看，光线柔和不刺眼，看书很舒服。', images: '[]' },
+    ];
+
+    const reviewSql = 'INSERT INTO reviews (user_id, product_id, rating, content, images) VALUES (?, ?, ?, ?, ?)';
+    for (const r of sampleReviews) {
+      await db.execute({ sql: reviewSql, args: [r.user_id, r.product_id, r.rating, r.content, r.images] });
+    }
+
+    console.log('已插入示例数据（含用户和评价）');
   }
 }
 
@@ -85,4 +144,4 @@ const dbReady = initDatabase().catch(err => {
   throw err;
 });
 
-module.exports = { db, categories, runQuery, getQuery, allQuery, dbReady, dbPath };
+module.exports = { db, categories, runQuery, getQuery, allQuery, dbReady, dbPath, JWT_SECRET };

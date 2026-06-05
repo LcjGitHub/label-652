@@ -6,5 +6,8 @@
   "frontend": {
     "port": 5173,
     "host": "localhost"
+  },
+  "jwt": {
+    "secret": "your-secret-key-change-in-production-please"
   }
 }
