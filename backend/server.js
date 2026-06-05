@@ -1,11 +1,15 @@
 const Koa = require('koa');
 const cors = require('@koa/cors');
 const bodyParser = require('koa-bodyparser');
+const net = require('net');
 const productsRouter = require('./routes/products');
+const healthRouter = require('./routes/health');
 const { dbReady } = require('./database');
+const config = require('../config');
 
 const app = new Koa();
-const PORT = process.env.PORT || 4000;
+const PORT = config.backend.port;
+const HOST = config.backend.host;
 
 app.use(cors({
   origin: '*',
@@ -28,22 +32,47 @@ app.use(async (ctx, next) => {
   }
 });
 
+app.use(healthRouter.routes());
+app.use(healthRouter.allowedMethods());
+
 app.use(productsRouter.routes());
 app.use(productsRouter.allowedMethods());
 
-app.use(async (ctx) => {
-  if (ctx.path === '/api/health') {
-    ctx.body = { success: true, message: '商品管理 API 运行正常' };
-  }
-});
+async function checkPortAvailable(port, host) {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        reject(new Error(`端口 ${port} 已被占用，请释放端口或修改 config.js 中的端口配置`));
+      } else {
+        reject(err);
+      }
+    });
+    server.once('listening', () => {
+      server.close();
+      resolve(true);
+    });
+    server.listen(port, host);
+  });
+}
 
 async function startServer() {
-  await dbReady;
-  app.listen(PORT, () => {
-    console.log(`服务器运行在 http://localhost:${PORT}`);
-    console.log(`健康检查: http://localhost:${PORT}/api/health`);
-    console.log(`商品接口: http://localhost:${PORT}/api/products`);
-  });
+  try {
+    await checkPortAvailable(PORT, HOST);
+    await dbReady;
+
+    app.listen(PORT, HOST, () => {
+      console.log('========================================');
+      console.log(`  后端服务器启动成功!`);
+      console.log(`  地址: http://${HOST}:${PORT}`);
+      console.log(`  健康检查: http://${HOST}:${PORT}/api/health`);
+      console.log(`  商品接口: http://${HOST}:${PORT}/api/products`);
+      console.log('========================================');
+    });
+  } catch (err) {
+    console.error('❌ 启动失败:', err.message);
+    process.exit(1);
+  }
 }
 
 startServer();

@@ -17,10 +17,10 @@ router.get('/', async (ctx) => {
     params.push(category);
   }
 
-  const countResult = getQuery(`SELECT COUNT(*) as total FROM products ${whereClause}`, params);
+  const countResult = await getQuery(`SELECT COUNT(*) as total FROM products ${whereClause}`, params);
   const total = countResult.total;
 
-  const products = allQuery(`
+  const products = await allQuery(`
     SELECT * FROM products ${whereClause}
     ORDER BY created_at DESC
     LIMIT ? OFFSET ?
@@ -49,7 +49,7 @@ router.get('/categories', async (ctx) => {
 
 router.get('/:id', async (ctx) => {
   const { id } = ctx.params;
-  const product = getQuery('SELECT * FROM products WHERE id = ?', [id]);
+  const product = await getQuery('SELECT * FROM products WHERE id = ?', [id]);
 
   if (!product) {
     ctx.status = 404;
@@ -75,7 +75,7 @@ router.post('/', async (ctx) => {
     return;
   }
 
-  const result = runQuery(`
+  const result = await runQuery(`
     INSERT INTO products (name, description, price, category, stock, image)
     VALUES (?, ?, ?, ?, ?, ?)
   `, [name, description, price, category, stock, image]);
@@ -91,7 +91,7 @@ router.put('/:id', async (ctx) => {
   const { id } = ctx.params;
   const { name, description, price, category, stock, image } = ctx.request.body;
 
-  const existing = getQuery('SELECT * FROM products WHERE id = ?', [id]);
+  const existing = await getQuery('SELECT * FROM products WHERE id = ?', [id]);
 
   if (!existing) {
     ctx.status = 404;
@@ -118,12 +118,12 @@ router.put('/:id', async (ctx) => {
   updateFields.push('updated_at = CURRENT_TIMESTAMP');
   updateValues.push(id);
 
-  runQuery(`
+  await runQuery(`
     UPDATE products SET ${updateFields.join(', ')}
     WHERE id = ?
   `, updateValues);
 
-  const updatedProduct = getQuery('SELECT * FROM products WHERE id = ?', [id]);
+  const updatedProduct = await getQuery('SELECT * FROM products WHERE id = ?', [id]);
 
   ctx.body = { success: true, data: updatedProduct };
 });
@@ -131,7 +131,7 @@ router.put('/:id', async (ctx) => {
 router.delete('/:id', async (ctx) => {
   const { id } = ctx.params;
 
-  const existing = getQuery('SELECT * FROM products WHERE id = ?', [id]);
+  const existing = await getQuery('SELECT * FROM products WHERE id = ?', [id]);
 
   if (!existing) {
     ctx.status = 404;
@@ -139,7 +139,7 @@ router.delete('/:id', async (ctx) => {
     return;
   }
 
-  runQuery('DELETE FROM products WHERE id = ?', [id]);
+  await runQuery('DELETE FROM products WHERE id = ?', [id]);
 
   ctx.body = { success: true, message: '删除成功' };
 });

@@ -1,25 +1,18 @@
-const initSqlJs = require('sql.js');
-const fs = require('fs');
+const { createClient } = require('@libsql/client');
 const path = require('path');
+const fs = require('fs');
 
-let db;
+const dbPath = path.join(__dirname, 'products.db');
+const config = require('../config');
+
+const db = createClient({
+  url: `file:${dbPath}`
+});
 
 const categories = ['电子产品', '服装', '食品', '家居', '图书', '运动'];
-const dbPath = path.join(__dirname, 'products.db');
 
 async function initDatabase() {
-  const SQL = await initSqlJs();
-
-  if (fs.existsSync(dbPath)) {
-    const fileBuffer = fs.readFileSync(dbPath);
-    db = new SQL.Database(fileBuffer);
-    console.log('已加载现有数据库');
-  } else {
-    db = new SQL.Database();
-    console.log('已创建新数据库');
-  }
-
-  db.run(`
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS products (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -33,27 +26,27 @@ async function initDatabase() {
     )
   `);
 
-  const countResult = db.exec('SELECT COUNT(*) as count FROM products');
-  const count = countResult[0]?.values[0]?.[0] || 0;
-  
+  const countResult = await db.execute('SELECT COUNT(*) as count FROM products');
+  const count = countResult.rows[0].count;
+
   if (count === 0) {
     const sampleProducts = [
-      ['iPhone 15', '最新款苹果手机，搭载 A17 芯片', 6999, '电子产品', 50, 'https://picsum.photos/seed/iphone15/300/200'],
-      ['MacBook Pro', '14英寸专业笔记本电脑', 14999, '电子产品', 30, 'https://picsum.photos/seed/macbook/300/200'],
-      ['AirPods Pro', '主动降噪无线耳机', 1899, '电子产品', 100, 'https://picsum.photos/seed/airpods/300/200'],
-      ['运动T恤', '纯棉透气运动上衣', 99, '服装', 200, 'https://picsum.photos/seed/tshirt/300/200'],
-      ['牛仔裤', '经典直筒牛仔长裤', 299, '服装', 150, 'https://picsum.photos/seed/jeans/300/200'],
-      ['运动鞋', '轻便透气跑步鞋', 599, '服装', 80, 'https://picsum.photos/seed/shoes/300/200'],
-      ['有机牛奶', '全脂纯牛奶 1L装', 15, '食品', 500, 'https://picsum.photos/seed/milk/300/200'],
-      ['进口巧克力', '比利时黑巧克力礼盒', 128, '食品', 60, 'https://picsum.photos/seed/chocolate/300/200'],
-      ['速溶咖啡', '阿拉比卡冻干咖啡粉', 68, '食品', 300, 'https://picsum.photos/seed/coffee/300/200'],
-      ['北欧台灯', 'LED护眼阅读台灯', 258, '家居', 45, 'https://picsum.photos/seed/lamp/300/200'],
-      ['收纳盒', '多功能塑料收纳箱', 45, '家居', 120, 'https://picsum.photos/seed/storage/300/200'],
-      ['香薰蜡烛', '天然大豆蜡香薰', 78, '家居', 90, 'https://picsum.photos/seed/candle/300/200'],
-      ['JavaScript高级程序设计', '前端开发经典教材', 129, '图书', 75, 'https://picsum.photos/seed/jsbook/300/200'],
-      ['活着', '余华经典文学作品', 39, '图书', 200, 'https://picsum.photos/seed/book/300/200'],
-      ['瑜伽垫', '加厚防滑健身垫', 89, '运动', 150, 'https://picsum.photos/seed/yogamat/300/200'],
-      ['哑铃套装', '可调节重量哑铃 20kg', 399, '运动', 40, 'https://picsum.photos/seed/dumbbell/300/200'],
+      { name: 'iPhone 15', desc: '最新款苹果手机，搭载 A17 芯片', price: 6999, category: '电子产品', stock: 50, image: 'https://picsum.photos/seed/iphone15-phone/300/200' },
+      { name: 'MacBook Pro', desc: '14英寸专业笔记本电脑', price: 14999, category: '电子产品', stock: 30, image: 'https://picsum.photos/seed/macbook-laptop/300/200' },
+      { name: 'AirPods Pro', desc: '主动降噪无线耳机', price: 1899, category: '电子产品', stock: 100, image: 'https://picsum.photos/seed/airpods-earbuds/300/200' },
+      { name: '运动T恤', desc: '纯棉透气运动上衣', price: 99, category: '服装', stock: 200, image: 'https://picsum.photos/seed/tshirt-clothing/300/200' },
+      { name: '牛仔裤', desc: '经典直筒牛仔长裤', price: 299, category: '服装', stock: 150, image: 'https://picsum.photos/seed/jeans-pants/300/200' },
+      { name: '运动鞋', desc: '轻便透气跑步鞋', price: 599, category: '运动', stock: 80, image: 'https://picsum.photos/seed/running-shoes/300/200' },
+      { name: '有机牛奶', desc: '全脂纯牛奶 1L装', price: 15, category: '食品', stock: 500, image: 'https://picsum.photos/seed/milk-dairy/300/200' },
+      { name: '进口巧克力', desc: '比利时黑巧克力礼盒', price: 128, category: '食品', stock: 60, image: 'https://picsum.photos/seed/chocolate-sweet/300/200' },
+      { name: '速溶咖啡', desc: '阿拉比卡冻干咖啡粉', price: 68, category: '食品', stock: 300, image: 'https://picsum.photos/seed/coffee-drink/300/200' },
+      { name: '北欧台灯', desc: 'LED护眼阅读台灯', price: 258, category: '家居', stock: 45, image: 'https://picsum.photos/seed/desk-lamp/300/200' },
+      { name: '收纳盒', desc: '多功能塑料收纳箱', price: 45, category: '家居', stock: 120, image: 'https://picsum.photos/seed/storage-box/300/200' },
+      { name: '香薰蜡烛', desc: '天然大豆蜡香薰', price: 78, category: '家居', stock: 90, image: 'https://picsum.photos/seed/candle-decor/300/200' },
+      { name: 'JavaScript高级程序设计', desc: '前端开发经典教材', price: 129, category: '图书', stock: 75, image: 'https://picsum.photos/seed/programming-book/300/200' },
+      { name: '活着', desc: '余华经典文学作品', price: 39, category: '图书', stock: 200, image: 'https://picsum.photos/seed/novel-book/300/200' },
+      { name: '瑜伽垫', desc: '加厚防滑健身垫', price: 89, category: '运动', stock: 150, image: 'https://picsum.photos/seed/yoga-mat/300/200' },
+      { name: '哑铃套装', desc: '可调节重量哑铃 20kg', price: 399, category: '运动', stock: 40, image: 'https://picsum.photos/seed/dumbbell-gym/300/200' },
     ];
 
     const insertSql = `
@@ -61,54 +54,32 @@ async function initDatabase() {
       VALUES (?, ?, ?, ?, ?, ?)
     `;
 
-    for (const product of sampleProducts) {
-      db.run(insertSql, product);
+    for (const p of sampleProducts) {
+      await db.execute({
+        sql: insertSql,
+        args: [p.name, p.desc, p.price, p.category, p.stock, p.image]
+      });
     }
     console.log('已插入示例数据');
-    saveDatabase();
   }
 }
 
-function saveDatabase() {
-  const data = db.export();
-  const buffer = Buffer.from(data);
-  fs.writeFileSync(dbPath, buffer);
+async function runQuery(sql, args = []) {
+  const result = await db.execute({ sql, args });
+  return {
+    lastID: result.lastInsertRowid?.toString(),
+    changes: result.rowsAffected
+  };
 }
 
-function runQuery(sql, params = []) {
-  db.run(sql, params);
-  saveDatabase();
-  
-  const lastIdResult = db.exec('SELECT last_insert_rowid() as id');
-  const lastID = lastIdResult[0]?.values[0]?.[0] || 0;
-  const changesResult = db.exec('SELECT changes() as changes');
-  const changes = changesResult[0]?.values[0]?.[0] || 0;
-  
-  return { lastID, changes };
+async function getQuery(sql, args = []) {
+  const result = await db.execute({ sql, args });
+  return result.rows.length > 0 ? result.rows[0] : undefined;
 }
 
-function getQuery(sql, params = []) {
-  const stmt = db.prepare(sql);
-  stmt.bind(params);
-  
-  let result = undefined;
-  if (stmt.step()) {
-    result = stmt.getAsObject();
-  }
-  stmt.free();
-  
-  return result;
-}
-
-function allQuery(sql, params = []) {
-  const stmt = db.prepare(sql);
-  stmt.bind(params);
-  const results = [];
-  while (stmt.step()) {
-    results.push(stmt.getAsObject());
-  }
-  stmt.free();
-  return results;
+async function allQuery(sql, args = []) {
+  const result = await db.execute({ sql, args });
+  return result.rows;
 }
 
 const dbReady = initDatabase().catch(err => {
@@ -116,4 +87,4 @@ const dbReady = initDatabase().catch(err => {
   throw err;
 });
 
-module.exports = { db, categories, runQuery, getQuery, allQuery, saveDatabase, dbReady };
+module.exports = { db, categories, runQuery, getQuery, allQuery, dbReady, dbPath };

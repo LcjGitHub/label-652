@@ -1,13 +1,16 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
+import config from '../config.json' with { type: 'json' };
 
 export default defineConfig({
   plugins: [vue()],
   server: {
-    port: 5173,
+    port: config.frontend.port,
+    host: config.frontend.host,
+    strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:4000',
+        target: `http://${config.backend.host}:${config.backend.port}`,
         changeOrigin: true
       }
     }

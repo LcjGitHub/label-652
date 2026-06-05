@@ -48,7 +48,11 @@
           class="product-card"
         >
           <div class="product-image">
-            <img :src="product.image" :alt="product.name" />
+            <img
+              :src="product.image || defaultPlaceholder"
+              :alt="product.name"
+              @error="handleImageError($event)"
+            />
             <span class="category-tag">{{ product.category }}</span>
           </div>
           <div class="product-info">
@@ -207,11 +211,17 @@ const formData = reactive({
   image: ''
 });
 
+const defaultPlaceholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PHRleHQgeD0iNTAlIiB5PSI1NSUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNiIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPuWbvueJh+WKoOWvhueggTwvdGV4dD48L3N2Zz4=';
+
 const toast = reactive({
   show: false,
   message: '',
   type: 'success'
 });
+
+const handleImageError = (event) => {
+  event.target.src = defaultPlaceholder;
+};
 
 const showToast = (message, type = 'success') => {
   toast.message = message;
@@ -306,6 +316,16 @@ const handleSubmit = async () => {
     } else {
       await createProduct({ ...formData });
       showToast('商品添加成功');
+      
+      if (selectedCategory.value !== 'all' && selectedCategory.value !== formData.category) {
+        setTimeout(() => {
+          if (confirm(`新商品属于「${formData.category}」分类，是否切换到该分类查看？`)) {
+            selectCategory(formData.category);
+          } else {
+            showToast(`提示：新商品属于「${formData.category}」分类，当前筛选下可能无法看到`, 'success');
+          }
+        }, 500);
+      }
     }
     closeModal();
     fetchProducts();
