@@ -1,0 +1,14 @@
+<svg width="300" height="200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffeaa7"/>
+      <stop offset="100%" style="stop-color:#fdcb6e"/>
+    </linearGradient>
+  </defs>
+  <rect width="300" height="200" fill="url(#bg)"/>
+  <g transform="translate(90, 40)">
+    <path d="M20 20 L0 40 L10 70 L30 55 L30 120 L90 120 L90 55 L110 70 L120 40 L100 20 Q60 50 20 20" fill="#e74c3c" stroke="#c0392b" stroke-width="2"/>
+    <path d="M40 20 Q60 45 80 20" fill="#e74c3c" stroke="#c0392b" stroke-width="2"/>
+    <text x="60" y="95" fill="white" font-family="Arial" font-size="12" text-anchor="middle" font-weight="bold">运动T恤</text>
+  </g>
+</svg>

@@ -1,9 +1,7 @@
 const { createClient } = require('@libsql/client');
-const path = require('path');
-const fs = require('fs');
-
-const dbPath = path.join(__dirname, 'products.db');
 const config = require('../config');
+
+const dbPath = config.database.path;
 
 const db = createClient({
   url: `file:${dbPath}`
@@ -31,22 +29,22 @@ async function initDatabase() {
 
   if (count === 0) {
     const sampleProducts = [
-      { name: 'iPhone 15', desc: '最新款苹果手机，搭载 A17 芯片', price: 6999, category: '电子产品', stock: 50, image: 'https://picsum.photos/seed/iphone15-phone/300/200' },
-      { name: 'MacBook Pro', desc: '14英寸专业笔记本电脑', price: 14999, category: '电子产品', stock: 30, image: 'https://picsum.photos/seed/macbook-laptop/300/200' },
-      { name: 'AirPods Pro', desc: '主动降噪无线耳机', price: 1899, category: '电子产品', stock: 100, image: 'https://picsum.photos/seed/airpods-earbuds/300/200' },
-      { name: '运动T恤', desc: '纯棉透气运动上衣', price: 99, category: '服装', stock: 200, image: 'https://picsum.photos/seed/tshirt-clothing/300/200' },
-      { name: '牛仔裤', desc: '经典直筒牛仔长裤', price: 299, category: '服装', stock: 150, image: 'https://picsum.photos/seed/jeans-pants/300/200' },
-      { name: '运动鞋', desc: '轻便透气跑步鞋', price: 599, category: '运动', stock: 80, image: 'https://picsum.photos/seed/running-shoes/300/200' },
-      { name: '有机牛奶', desc: '全脂纯牛奶 1L装', price: 15, category: '食品', stock: 500, image: 'https://picsum.photos/seed/milk-dairy/300/200' },
-      { name: '进口巧克力', desc: '比利时黑巧克力礼盒', price: 128, category: '食品', stock: 60, image: 'https://picsum.photos/seed/chocolate-sweet/300/200' },
-      { name: '速溶咖啡', desc: '阿拉比卡冻干咖啡粉', price: 68, category: '食品', stock: 300, image: 'https://picsum.photos/seed/coffee-drink/300/200' },
-      { name: '北欧台灯', desc: 'LED护眼阅读台灯', price: 258, category: '家居', stock: 45, image: 'https://picsum.photos/seed/desk-lamp/300/200' },
-      { name: '收纳盒', desc: '多功能塑料收纳箱', price: 45, category: '家居', stock: 120, image: 'https://picsum.photos/seed/storage-box/300/200' },
-      { name: '香薰蜡烛', desc: '天然大豆蜡香薰', price: 78, category: '家居', stock: 90, image: 'https://picsum.photos/seed/candle-decor/300/200' },
-      { name: 'JavaScript高级程序设计', desc: '前端开发经典教材', price: 129, category: '图书', stock: 75, image: 'https://picsum.photos/seed/programming-book/300/200' },
-      { name: '活着', desc: '余华经典文学作品', price: 39, category: '图书', stock: 200, image: 'https://picsum.photos/seed/novel-book/300/200' },
-      { name: '瑜伽垫', desc: '加厚防滑健身垫', price: 89, category: '运动', stock: 150, image: 'https://picsum.photos/seed/yoga-mat/300/200' },
-      { name: '哑铃套装', desc: '可调节重量哑铃 20kg', price: 399, category: '运动', stock: 40, image: 'https://picsum.photos/seed/dumbbell-gym/300/200' },
+      { name: 'iPhone 15', desc: '最新款苹果手机，搭载 A17 芯片', price: 6999, category: '电子产品', stock: 50, image: '/products/iphone15-phone.svg' },
+      { name: 'MacBook Pro', desc: '14英寸专业笔记本电脑', price: 14999, category: '电子产品', stock: 30, image: '/products/macbook-laptop.svg' },
+      { name: 'AirPods Pro', desc: '主动降噪无线耳机', price: 1899, category: '电子产品', stock: 100, image: '/products/airpods-earbuds.svg' },
+      { name: '运动T恤', desc: '纯棉透气运动上衣', price: 99, category: '服装', stock: 200, image: '/products/tshirt-clothing.svg' },
+      { name: '牛仔裤', desc: '经典直筒牛仔长裤', price: 299, category: '服装', stock: 150, image: '/products/jeans-pants.svg' },
+      { name: '运动鞋', desc: '轻便透气跑步鞋', price: 599, category: '运动', stock: 80, image: '/products/running-shoes.svg' },
+      { name: '有机牛奶', desc: '全脂纯牛奶 1L装', price: 15, category: '食品', stock: 500, image: '/products/milk-dairy.svg' },
+      { name: '进口巧克力', desc: '比利时黑巧克力礼盒', price: 128, category: '食品', stock: 60, image: '/products/chocolate-sweet.svg' },
+      { name: '速溶咖啡', desc: '阿拉比卡冻干咖啡粉', price: 68, category: '食品', stock: 300, image: '/products/coffee-drink.svg' },
+      { name: '北欧台灯', desc: 'LED护眼阅读台灯', price: 258, category: '家居', stock: 45, image: '/products/desk-lamp.svg' },
+      { name: '收纳盒', desc: '多功能塑料收纳箱', price: 45, category: '家居', stock: 120, image: '/products/storage-box.svg' },
+      { name: '香薰蜡烛', desc: '天然大豆蜡香薰', price: 78, category: '家居', stock: 90, image: '/products/candle-decor.svg' },
+      { name: 'JavaScript高级程序设计', desc: '前端开发经典教材', price: 129, category: '图书', stock: 75, image: '/products/programming-book.svg' },
+      { name: '活着', desc: '余华经典文学作品', price: 39, category: '图书', stock: 200, image: '/products/novel-book.svg' },
+      { name: '瑜伽垫', desc: '加厚防滑健身垫', price: 89, category: '运动', stock: 150, image: '/products/yoga-mat.svg' },
+      { name: '哑铃套装', desc: '可调节重量哑铃 20kg', price: 399, category: '运动', stock: 40, image: '/products/dumbbell-gym.svg' },
     ];
 
     const insertSql = `

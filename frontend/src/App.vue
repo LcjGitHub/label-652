@@ -175,6 +175,25 @@
     <div v-if="toast.show" class="toast" :class="toast.type">
       {{ toast.message }}
     </div>
+
+    <div v-if="confirmDialog.show" class="modal-overlay">
+      <div class="modal confirm-modal">
+        <div class="modal-header">
+          <h3>{{ confirmDialog.title }}</h3>
+        </div>
+        <div class="modal-body confirm-body">
+          <p>{{ confirmDialog.message }}</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline" @click="handleConfirm(false)">
+            {{ confirmDialog.cancelText || '取消' }}
+          </button>
+          <button class="btn btn-primary" @click="handleConfirm(true)">
+            {{ confirmDialog.confirmText || '确定' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -219,6 +238,18 @@ const toast = reactive({
   type: 'success'
 });
 
+const confirmDialog = reactive({
+  show: false,
+  title: '',
+  message: '',
+  confirmText: '确定',
+  cancelText: '取消',
+  onConfirm: null
+});
+
+let pendingDeleteId = null;
+let pendingCategorySwitch = null;
+
 const handleImageError = (event) => {
   event.target.src = defaultPlaceholder;
 };
@@ -230,6 +261,25 @@ const showToast = (message, type = 'success') => {
   setTimeout(() => {
     toast.show = false;
   }, 3000);
+};
+
+const showConfirm = (title, message, options = {}) => {
+  return new Promise((resolve) => {
+    confirmDialog.title = title;
+    confirmDialog.message = message;
+    confirmDialog.confirmText = options.confirmText || '确定';
+    confirmDialog.cancelText = options.cancelText || '取消';
+    confirmDialog.onConfirm = resolve;
+    confirmDialog.show = true;
+  });
+};
+
+const handleConfirm = (result) => {
+  confirmDialog.show = false;
+  if (confirmDialog.onConfirm) {
+    confirmDialog.onConfirm(result);
+    confirmDialog.onConfirm = null;
+  }
 };
 
 const fetchCategories = async () => {
@@ -261,7 +311,10 @@ const fetchProducts = async () => {
     }
   } catch (err) {
     console.error('获取商品失败:', err);
-    showToast('获取商品失败', 'error');
+    products.value = [];
+    pagination.total = 0;
+    pagination.pages = 0;
+    showToast('获取商品失败，请检查后端服务是否正常', 'error');
   } finally {
     loading.value = false;
   }
@@ -313,22 +366,26 @@ const handleSubmit = async () => {
     if (editingProduct.value) {
       await updateProduct(editingProduct.value.id, { ...formData });
       showToast('商品更新成功');
+      closeModal();
+      fetchProducts();
     } else {
+      const newProductCategory = formData.category;
       await createProduct({ ...formData });
       showToast('商品添加成功');
+      closeModal();
+      fetchProducts();
       
-      if (selectedCategory.value !== 'all' && selectedCategory.value !== formData.category) {
-        setTimeout(() => {
-          if (confirm(`新商品属于「${formData.category}」分类，是否切换到该分类查看？`)) {
-            selectCategory(formData.category);
-          } else {
-            showToast(`提示：新商品属于「${formData.category}」分类，当前筛选下可能无法看到`, 'success');
-          }
-        }, 500);
+      if (selectedCategory.value !== 'all' && selectedCategory.value !== newProductCategory) {
+        const confirmed = await showConfirm(
+          '切换分类',
+          `新商品属于「${newProductCategory}」分类，当前筛选下可能无法看到，是否切换到该分类查看？`,
+          { confirmText: '切换分类', cancelText: '留在当前' }
+        );
+        if (confirmed) {
+          selectCategory(newProductCategory);
+        }
       }
     }
-    closeModal();
-    fetchProducts();
   } catch (err) {
     console.error('操作失败:', err);
     showToast(err.response?.data?.message || '操作失败', 'error');
@@ -336,7 +393,12 @@ const handleSubmit = async () => {
 };
 
 const handleDelete = async (id) => {
-  if (!confirm('确定要删除这个商品吗？')) return;
+  const confirmed = await showConfirm(
+    '确认删除',
+    '确定要删除这个商品吗？此操作无法撤销。',
+    { confirmText: '删除', cancelText: '取消' }
+  );
+  if (!confirmed) return;
   try {
     await deleteProduct(id);
     showToast('商品删除成功');
@@ -763,5 +825,44 @@ onMounted(() => {
     transform: translateX(0);
     opacity: 1;
   }
+}
+
+.confirm-modal {
+  max-width: 420px;
+  animation: modalFadeIn 0.25s ease;
+}
+
+@keyframes modalFadeIn {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.confirm-modal .modal-header {
+  border-bottom: none;
+  padding-bottom: 10px;
+}
+
+.confirm-modal .modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #2c3e50;
+}
+
+.confirm-body {
+  padding-top: 0;
+  padding-bottom: 10px;
+}
+
+.confirm-body p {
+  margin: 0;
+  font-size: 15px;
+  color: #555;
+  line-height: 1.6;
 }
 </style>

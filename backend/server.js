@@ -43,7 +43,7 @@ async function checkPortAvailable(port, host) {
     const server = net.createServer();
     server.once('error', (err) => {
       if (err.code === 'EADDRINUSE') {
-        reject(new Error(`端口 ${port} 已被占用，请释放端口或修改 config.js 中的端口配置`));
+        reject(new Error(`端口 ${port} 已被占用，请释放端口或修改 config.json 中的端口配置`));
       } else {
         reject(err);
       }
