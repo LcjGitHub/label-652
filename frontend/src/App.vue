@@ -9,6 +9,14 @@
           <button v-if="showAddButton" class="btn btn-primary" @click="handleAddProduct">
             + 添加商品
           </button>
+          <button class="cart-icon-btn" @click="toggleCartDrawer" :title="'购物车 (' + cartCount + ')'">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="9" cy="21" r="1"></circle>
+              <circle cx="20" cy="21" r="1"></circle>
+              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
+            </svg>
+            <span v-if="cartCount > 0" class="cart-badge">{{ cartCount > 99 ? '99+' : cartCount }}</span>
+          </button>
           <div v-if="isAuthenticated" class="user-menu">
             <div class="user-info">
               <img :src="user?.avatar" :alt="user?.username" class="user-avatar" />
@@ -29,6 +37,8 @@
     <main class="main container">
       <router-view @add-product="handleAddProduct" />
     </main>
+
+    <CartDrawer :show="isCartDrawerOpen" @close="closeCartDrawer" />
   </div>
 </template>
 
@@ -36,9 +46,12 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuth } from './composables/useAuth.js';
+import { useCart } from './composables/useCart.js';
+import CartDrawer from './components/CartDrawer.vue';
 
 const route = useRoute();
 const { user, isAuthenticated, handleLogout, loadUser } = useAuth();
+const { cartCount, isCartDrawerOpen, loadCart, toggleCartDrawer, closeCartDrawer } = useCart();
 
 const showAddButton = computed(() => route.path === '/');
 
@@ -53,6 +66,7 @@ onMounted(() => {
   if (localStorage.getItem('token') && !isAuthenticated.value) {
     loadUser();
   }
+  loadCart();
 });
 
 watch(() => route.path, () => {
@@ -118,6 +132,45 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
+}
+
+.cart-icon-btn {
+  position: relative;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  padding: 0;
+}
+
+.cart-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+  transform: translateY(-1px);
+}
+
+.cart-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: #e74c3c;
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .user-menu {

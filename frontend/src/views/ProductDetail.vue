@@ -65,12 +65,40 @@
           <div class="product-stock-large">
             库存: {{ product.stock }} 件
           </div>
-          <button
-            class="btn btn-primary btn-large"
-            @click="openReviewModal"
-          >
-            {{ userReview ? '编辑我的评价' : '发表评价' }}
-          </button>
+          <div class="product-actions">
+            <div class="quantity-selector">
+              <span class="qty-label">数量：</span>
+              <button
+                class="qty-btn"
+                :disabled="addToCartQuantity <= 1 || cartLoading"
+                @click="addToCartQuantity = Math.max(1, addToCartQuantity - 1)"
+              >
+                −
+              </button>
+              <span class="qty-value">{{ addToCartQuantity }}</span>
+              <button
+                class="qty-btn"
+                :disabled="addToCartQuantity >= product.stock || cartLoading"
+                @click="addToCartQuantity = Math.min(product.stock, addToCartQuantity + 1)"
+              >
+                +
+              </button>
+            </div>
+            <button
+              class="btn btn-primary btn-large"
+              :disabled="product.stock === 0 || cartLoading"
+              @click="doAddToCart"
+            >
+              <span v-if="cartLoading">添加中...</span>
+              <span v-else>加入购物车</span>
+            </button>
+            <button
+              class="btn btn-outline btn-large"
+              @click="openReviewModal"
+            >
+              {{ userReview ? '编辑我的评价' : '发表评价' }}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -216,11 +244,13 @@ import {
   getMyReviewForProduct
 } from '../api/reviews.js';
 import { useAuth } from '../composables/useAuth.js';
+import { useCart } from '../composables/useCart.js';
 import ReviewModal from '../components/ReviewModal.vue';
 
 const route = useRoute();
 const router = useRouter();
 const { user, isAuthenticated } = useAuth();
+const { handleAddToCart, isLoading: cartLoading, openCartDrawer } = useCart();
 
 const productId = computed(() => route.params.id);
 
@@ -229,6 +259,7 @@ const loading = ref(true);
 const reviews = ref([]);
 const reviewStats = ref(null);
 const reviewsLoading = ref(false);
+const addToCartQuantity = ref(1);
 
 const showReviewModal = ref(false);
 const editingReview = ref(null);
@@ -341,6 +372,7 @@ const fetchProduct = async () => {
     const res = await getProduct(productId.value);
     if (res.data.success) {
       product.value = res.data.data;
+      addToCartQuantity.value = 1;
     } else {
       product.value = null;
     }
@@ -349,6 +381,18 @@ const fetchProduct = async () => {
     product.value = null;
   } finally {
     loading.value = false;
+  }
+};
+
+const doAddToCart = async () => {
+  const result = await handleAddToCart(productId.value, addToCartQuantity.value);
+  if (result.success) {
+    showToast(result.message, 'success');
+    if (confirm('商品已加入购物车，是否前往购物车查看？')) {
+      openCartDrawer();
+    }
+  } else {
+    showToast(result.message, 'error');
   }
 };
 
@@ -667,6 +711,56 @@ watch(user, (newUser) => {
   font-size: 14px;
   color: #888;
   margin-bottom: 24px;
+}
+
+.product-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.quantity-selector {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.qty-label {
+  font-size: 14px;
+  color: #666;
+}
+
+.quantity-selector .qty-btn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid #ddd;
+  background: white;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 18px;
+  color: #667eea;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.quantity-selector .qty-btn:hover:not(:disabled) {
+  background: #f0f0f0;
+  border-color: #667eea;
+}
+
+.quantity-selector .qty-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.quantity-selector .qty-value {
+  min-width: 50px;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
 }
 
 .btn {

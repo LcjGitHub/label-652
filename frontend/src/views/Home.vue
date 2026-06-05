@@ -53,13 +53,23 @@
             <span class="price">¥{{ product.price.toFixed(2) }}</span>
             <span class="stock">库存: {{ product.stock }}</span>
           </div>
-          <div v-if="isAuthenticated" class="product-actions" @click.stop>
-            <button class="btn btn-sm btn-outline" @click="openModal(product)">
-              编辑
+          <div class="product-card-actions" @click.stop>
+            <button
+              class="btn btn-sm btn-primary"
+              :disabled="product.stock === 0 || addingCartId === product.id"
+              @click="quickAddToCart(product)"
+            >
+              <span v-if="addingCartId === product.id">添加中...</span>
+              <span v-else>加入购物车</span>
             </button>
-            <button class="btn btn-sm btn-danger" @click="handleDelete(product.id)">
-              删除
-            </button>
+            <template v-if="isAuthenticated">
+              <button class="btn btn-sm btn-outline" @click="openModal(product)">
+                编辑
+              </button>
+              <button class="btn btn-sm btn-danger" @click="handleDelete(product.id)">
+                删除
+              </button>
+            </template>
           </div>
         </div>
       </div>
@@ -198,9 +208,11 @@ import {
   deleteProduct
 } from '../api/products.js';
 import { useAuth } from '../composables/useAuth.js';
+import { useCart } from '../composables/useCart.js';
 
 const router = useRouter();
 const { isAuthenticated } = useAuth();
+const { handleAddToCart, openCartDrawer } = useCart();
 
 const categories = ref([]);
 const products = ref([]);
@@ -208,6 +220,7 @@ const loading = ref(false);
 const selectedCategory = ref('all');
 const showModal = ref(false);
 const editingProduct = ref(null);
+const addingCartId = ref(null);
 
 const handleOpenAddModal = () => {
   openModal();
@@ -421,6 +434,22 @@ const handleDelete = async (id) => {
   }
 };
 
+const quickAddToCart = async (product) => {
+  addingCartId.value = product.id;
+  try {
+    const result = await handleAddToCart(product.id, 1);
+    if (result.success) {
+      showToast(result.message, 'success');
+    } else {
+      showToast(result.message, 'error');
+    }
+  } catch (err) {
+    showToast('添加失败', 'error');
+  } finally {
+    addingCartId.value = null;
+  }
+};
+
 </script>
 
 <style scoped>
@@ -585,9 +614,10 @@ const handleDelete = async (id) => {
   color: #999;
 }
 
-.product-actions {
+.product-card-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .btn {
@@ -601,9 +631,10 @@ const handleDelete = async (id) => {
 }
 
 .btn-sm {
-  padding: 6px 16px;
-  font-size: 13px;
+  padding: 6px 12px;
+  font-size: 12px;
   flex: 1;
+  min-width: 60px;
 }
 
 .btn-primary {
