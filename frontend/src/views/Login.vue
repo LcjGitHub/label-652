@@ -6,6 +6,9 @@
         <p>登录您的账号继续购物</p>
       </div>
       <form class="auth-form" @submit.prevent="handleSubmit">
+        <div v-if="errorMessage" class="error-message">
+          {{ errorMessage }}
+        </div>
         <div class="form-group">
           <label>邮箱</label>
           <input
@@ -59,7 +62,6 @@ const handleSubmit = async () => {
   const result = await handleLogin({ ...formData });
   if (!result.success) {
     errorMessage.value = result.message;
-    alert(result.message);
   }
 };
 </script>
@@ -102,6 +104,16 @@ const handleSubmit = async () => {
 
 .auth-form {
   margin-bottom: 24px;
+}
+
+.error-message {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  font-size: 14px;
 }
 
 .form-group {

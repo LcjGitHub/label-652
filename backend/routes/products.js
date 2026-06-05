@@ -1,5 +1,6 @@
 const Router = require('koa-router');
 const { categories, runQuery, getQuery, allQuery } = require('../database');
+const { authMiddleware } = require('../middleware/auth');
 
 const router = new Router({ prefix: '/api/products' });
 
@@ -87,7 +88,7 @@ router.post('/', async (ctx) => {
   };
 });
 
-router.put('/:id', async (ctx) => {
+router.put('/:id', authMiddleware, async (ctx) => {
   const { id } = ctx.params;
   const { name, description, price, category, stock, image } = ctx.request.body;
 
@@ -128,7 +129,7 @@ router.put('/:id', async (ctx) => {
   ctx.body = { success: true, data: updatedProduct };
 });
 
-router.delete('/:id', async (ctx) => {
+router.delete('/:id', authMiddleware, async (ctx) => {
   const { id } = ctx.params;
 
   const existing = await getQuery('SELECT * FROM products WHERE id = ?', [id]);

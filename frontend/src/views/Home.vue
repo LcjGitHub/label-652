@@ -53,7 +53,7 @@
             <span class="price">¥{{ product.price.toFixed(2) }}</span>
             <span class="stock">库存: {{ product.stock }}</span>
           </div>
-          <div class="product-actions" @click.stop>
+          <div v-if="isAuthenticated" class="product-actions" @click.stop>
             <button class="btn btn-sm btn-outline" @click="openModal(product)">
               编辑
             </button>
@@ -188,7 +188,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   getProducts,
@@ -197,8 +197,10 @@ import {
   updateProduct,
   deleteProduct
 } from '../api/products.js';
+import { useAuth } from '../composables/useAuth.js';
 
 const router = useRouter();
+const { isAuthenticated } = useAuth();
 
 const categories = ref([]);
 const products = ref([]);
@@ -206,6 +208,20 @@ const loading = ref(false);
 const selectedCategory = ref('all');
 const showModal = ref(false);
 const editingProduct = ref(null);
+
+const handleOpenAddModal = () => {
+  openModal();
+};
+
+onMounted(() => {
+  fetchCategories();
+  fetchProducts();
+  window.addEventListener('open-add-modal', handleOpenAddModal);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('open-add-modal', handleOpenAddModal);
+});
 
 const pagination = reactive({
   page: 1,
@@ -405,10 +421,6 @@ const handleDelete = async (id) => {
   }
 };
 
-onMounted(() => {
-  fetchCategories();
-  fetchProducts();
-});
 </script>
 
 <style scoped>

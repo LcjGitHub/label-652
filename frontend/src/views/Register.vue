@@ -6,6 +6,9 @@
         <p>加入我们，开始购物之旅</p>
       </div>
       <form class="auth-form" @submit.prevent="handleSubmit">
+        <div v-if="errorMessage" class="error-message">
+          {{ errorMessage }}
+        </div>
         <div class="form-group">
           <label>用户名</label>
           <input
@@ -44,6 +47,17 @@
             placeholder="请再次输入密码"
           />
         </div>
+        <div class="form-group">
+          <label>头像链接（可选）</label>
+          <input
+            type="url"
+            v-model="formData.avatar"
+            placeholder="https://example.com/avatar.jpg"
+          />
+          <p v-if="formData.avatar" class="avatar-preview-hint">
+            <img :src="formData.avatar" alt="头像预览" class="avatar-preview" @error="handleAvatarError" />
+          </p>
+        </div>
         <button type="submit" class="btn btn-primary btn-block" :disabled="isLoading">
           <span v-if="isLoading">注册中...</span>
           <span v-else>注册</span>
@@ -58,7 +72,7 @@
 </template>
 
 <script setup>
-import { reactive } from 'vue';
+import { reactive, ref } from 'vue';
 import { useAuth } from '../composables/useAuth.js';
 
 const { handleRegister, isLoading } = useAuth();
@@ -67,19 +81,33 @@ const formData = reactive({
   username: '',
   email: '',
   password: '',
-  confirmPassword: ''
+  confirmPassword: '',
+  avatar: ''
 });
 
+const errorMessage = ref('');
+
+const handleAvatarError = (event) => {
+  event.target.style.display = 'none';
+};
+
 const handleSubmit = async () => {
+  errorMessage.value = '';
+  
   if (formData.password !== formData.confirmPassword) {
-    alert('两次输入的密码不一致');
+    errorMessage.value = '两次输入的密码不一致';
     return;
   }
 
   const { confirmPassword, ...registerData } = formData;
+  
+  if (!registerData.avatar) {
+    delete registerData.avatar;
+  }
+  
   const result = await handleRegister(registerData);
   if (!result.success) {
-    alert(result.message);
+    errorMessage.value = result.message;
   }
 };
 </script>
@@ -124,6 +152,16 @@ const handleSubmit = async () => {
   margin-bottom: 24px;
 }
 
+.error-message {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  font-size: 14px;
+}
+
 .form-group {
   margin-bottom: 20px;
 }
@@ -150,6 +188,19 @@ const handleSubmit = async () => {
   outline: none;
   border-color: #667eea;
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.avatar-preview-hint {
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+
+.avatar-preview {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #e0e0e0;
 }
 
 .btn {

@@ -27,3 +27,7 @@ export const deleteReview = (id) => {
 export const getMyReviews = (params = {}) => {
   return api.get('/reviews/user/my', { params });
 };
+
+export const getMyReviewForProduct = (productId) => {
+  return api.get(`/reviews/product/${productId}/my`);
+};

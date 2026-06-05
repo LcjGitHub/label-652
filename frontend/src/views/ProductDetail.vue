@@ -80,16 +80,17 @@
           <div class="reviews-filters">
             <div class="filter-group">
               <label>按评分筛选：</label>
-              <select v-model="filterRating" @change="fetchReviews">
+              <select v-model="filterRating" @change="handleFilterChange">
                 <option value="all">全部</option>
                 <option v-for="r in 5" :key="r" :value="r">{{ r }}星</option>
               </select>
             </div>
             <div class="filter-group">
               <label>排序方式：</label>
-              <select v-model="sortBy" @change="fetchReviews">
+              <select v-model="sortBy" @change="handleSortChange">
                 <option value="created_at">最新发布</option>
                 <option value="rating">评分最高</option>
+                <option value="rating_asc">评分最低</option>
               </select>
             </div>
           </div>
@@ -205,13 +206,14 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue';
+import { ref, reactive, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { getProduct } from '../api/products.js';
 import {
   getProductReviews,
   getProductReviewStats,
-  deleteReview
+  deleteReview,
+  getMyReviewForProduct
 } from '../api/reviews.js';
 import { useAuth } from '../composables/useAuth.js';
 import ReviewModal from '../components/ReviewModal.vue';
@@ -233,6 +235,7 @@ const editingReview = ref(null);
 
 const filterRating = ref('all');
 const sortBy = ref('created_at');
+const userReview = ref(null);
 
 const reviewPagination = reactive({
   page: 1,
@@ -258,10 +261,31 @@ const confirmDialog = reactive({
   onConfirm: null
 });
 
-const userReview = computed(() => {
-  if (!user.value) return null;
-  return reviews.value.find(r => r.user_id === user.value.id);
-});
+const handleFilterChange = () => {
+  reviewPagination.page = 1;
+  fetchReviews();
+};
+
+const handleSortChange = () => {
+  reviewPagination.page = 1;
+  fetchReviews();
+};
+
+const fetchUserReview = async () => {
+  if (!user.value) {
+    userReview.value = null;
+    return;
+  }
+  try {
+    const res = await getMyReviewForProduct(productId.value);
+    if (res.data.success) {
+      userReview.value = res.data.data;
+    }
+  } catch (err) {
+    console.error('获取用户评价失败:', err);
+    userReview.value = null;
+  }
+};
 
 const handleImageError = (event) => {
   event.target.src = defaultPlaceholder;
@@ -397,6 +421,7 @@ const onReviewSuccess = () => {
   showToast(editingReview.value ? '评价更新成功' : '评价发表成功');
   fetchReviews();
   fetchReviewStats();
+  fetchUserReview();
 };
 
 const handleDeleteReview = async (reviewId) => {
@@ -411,6 +436,7 @@ const handleDeleteReview = async (reviewId) => {
     showToast('评价删除成功');
     fetchReviews();
     fetchReviewStats();
+    fetchUserReview();
   } catch (err) {
     console.error('删除失败:', err);
     showToast(err.response?.data?.message || '删除失败', 'error');
@@ -421,7 +447,16 @@ onMounted(() => {
   fetchProduct();
   fetchReviewStats();
   fetchReviews();
+  fetchUserReview();
 });
+
+watch(user, (newUser) => {
+  if (newUser) {
+    fetchUserReview();
+  } else {
+    userReview.value = null;
+  }
+}, { immediate: false });
 </script>
 
 <style scoped>

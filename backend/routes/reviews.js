@@ -35,14 +35,22 @@ router.get('/product/:productId', async (ctx) => {
 
   const validSortFields = ['created_at', 'updated_at', 'rating'];
   const sortField = validSortFields.includes(sortBy) ? sortBy : 'created_at';
-  const sortDir = sortOrder === 'asc' ? 'ASC' : 'DESC';
+  
+  let sortDir = 'DESC';
+  if (sortBy === 'rating_asc') {
+    sortDir = 'ASC';
+  } else if (sortOrder === 'asc') {
+    sortDir = 'ASC';
+  }
+
+  const actualSortField = sortBy === 'rating_asc' ? 'rating' : sortField;
 
   const reviews = await allQuery(`
     SELECT reviews.*, users.username, users.avatar
     FROM reviews
     INNER JOIN users ON reviews.user_id = users.id
     ${whereClause}
-    ORDER BY ${sortField} ${sortDir}
+    ORDER BY ${actualSortField} ${sortDir}
     LIMIT ? OFFSET ?
   `, [...params, limitNum, offset]);
 
@@ -62,6 +70,27 @@ router.get('/product/:productId', async (ctx) => {
         pages: Math.ceil(total / limitNum)
       }
     }
+  };
+});
+
+router.get('/product/:productId/my', authMiddleware, async (ctx) => {
+  const { productId } = ctx.params;
+  const userId = ctx.state.user.id;
+
+  const review = await getQuery(`
+    SELECT reviews.*, users.username, users.avatar
+    FROM reviews
+    INNER JOIN users ON reviews.user_id = users.id
+    WHERE reviews.product_id = ? AND reviews.user_id = ?
+  `, [productId, userId]);
+
+  if (review) {
+    review.images = review.images ? JSON.parse(review.images) : [];
+  }
+
+  ctx.body = {
+    success: true,
+    data: review || null
   };
 });
 
