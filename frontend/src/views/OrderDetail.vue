@@ -135,6 +135,30 @@
         >
           {{ isCancelling ? '取消中...' : '取消订单' }}
         </button>
+        <button
+          v-if="order.status === 'paid'"
+          class="btn btn-primary"
+          :disabled="isUpdatingStatus"
+          @click="handleShip"
+        >
+          {{ isUpdatingStatus === 'ship' ? '发货中...' : '发货' }}
+        </button>
+        <button
+          v-if="order.status === 'paid'"
+          class="btn btn-outline"
+          :disabled="isCancelling"
+          @click="handleCancel"
+        >
+          {{ isCancelling ? '取消中...' : '取消订单' }}
+        </button>
+        <button
+          v-if="order.status === 'shipped'"
+          class="btn btn-primary"
+          :disabled="isUpdatingStatus === 'complete'"
+          @click="handleConfirmReceive"
+        >
+          {{ isUpdatingStatus === 'complete' ? '确认中...' : '确认收货' }}
+        </button>
         <router-link
           v-if="order.status === 'completed'"
           to="/"
@@ -163,6 +187,7 @@ const route = useRoute();
 const order = ref(null);
 const isLoading = ref(true);
 const isCancelling = ref(false);
+const isUpdatingStatus = ref(null);
 
 const defaultPlaceholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PHRleHQgeD0iNTAlIiB5PSI1NSUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNiIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPuWbvueJh+WKoOWvhueggTwvdGV4dD48L3N2Zz4=';
 
@@ -243,6 +268,44 @@ const handlePay = async () => {
     }
   } catch (err) {
     alert(err.response?.data?.message || '支付失败');
+  }
+};
+
+const handleShip = async () => {
+  if (!confirm('确定要发货吗？')) return;
+
+  isUpdatingStatus.value = 'ship';
+  try {
+    const res = await updateOrderStatus(order.value.id, 'shipped');
+    if (res.data.success) {
+      alert('发货成功！');
+      loadOrder();
+    } else {
+      alert(res.data.message || '发货失败');
+    }
+  } catch (err) {
+    alert(err.response?.data?.message || '发货失败');
+  } finally {
+    isUpdatingStatus.value = null;
+  }
+};
+
+const handleConfirmReceive = async () => {
+  if (!confirm('确定要确认收货吗？')) return;
+
+  isUpdatingStatus.value = 'complete';
+  try {
+    const res = await updateOrderStatus(order.value.id, 'completed');
+    if (res.data.success) {
+      alert('确认收货成功！');
+      loadOrder();
+    } else {
+      alert(res.data.message || '确认收货失败');
+    }
+  } catch (err) {
+    alert(err.response?.data?.message || '确认收货失败');
+  } finally {
+    isUpdatingStatus.value = null;
   }
 };
 

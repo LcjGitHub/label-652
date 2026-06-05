@@ -118,7 +118,7 @@ router.post('/create', authMiddleware, async (ctx) => {
     VALUES (?, ?, ?, 'pending', ?, ?, ?)
   `, [userId, orderNo, totalAmount, shipping_address, payment_method, remark]);
 
-  const orderId = result.lastInsertRowid;
+  const orderId = result.lastID;
 
   for (const item of cartItems) {
     const subtotal = item.price * item.quantity;
@@ -184,6 +184,19 @@ router.put('/:id/cancel', authMiddleware, async (ctx) => {
   };
 });
 
+const statusTransitions = {
+  pending: ['paid', 'cancelled'],
+  paid: ['shipped', 'cancelled'],
+  shipped: ['completed'],
+  completed: [],
+  cancelled: []
+};
+
+const checkStatusTransition = (currentStatus, newStatus) => {
+  const allowedTransitions = statusTransitions[currentStatus] || [];
+  return allowedTransitions.includes(newStatus);
+};
+
 router.put('/:id/status', authMiddleware, async (ctx) => {
   const userId = ctx.state.user.id;
   const { id } = ctx.params;
@@ -203,6 +216,22 @@ router.put('/:id/status', authMiddleware, async (ctx) => {
   if (!order) {
     ctx.status = 404;
     ctx.body = { success: false, message: '订单不存在' };
+    return;
+  }
+
+  if (!checkStatusTransition(order.status, status)) {
+    ctx.status = 400;
+    const statusTextMap = {
+      pending: '待付款',
+      paid: '待发货',
+      shipped: '待收货',
+      completed: '已完成',
+      cancelled: '已取消'
+    };
+    ctx.body = {
+      success: false,
+      message: `订单状态不允许从"${statusTextMap[order.status]}"变更为"${statusTextMap[status]}"`
+    };
     return;
   }
 

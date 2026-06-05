@@ -98,9 +98,34 @@
             <button
               v-if="order.status === 'pending'"
               class="btn btn-primary btn-sm"
+              :disabled="payingId === order.id"
               @click="handlePay(order)"
             >
-              立即支付
+              {{ payingId === order.id ? '支付中...' : '立即支付' }}
+            </button>
+            <button
+              v-if="order.status === 'paid'"
+              class="btn btn-danger btn-sm"
+              :disabled="cancellingId === order.id"
+              @click="handleCancelOrder(order.id)"
+            >
+              {{ cancellingId === order.id ? '取消中...' : '取消订单' }}
+            </button>
+            <button
+              v-if="order.status === 'paid'"
+              class="btn btn-primary btn-sm"
+              :disabled="shippingId === order.id"
+              @click="handleShip(order)"
+            >
+              {{ shippingId === order.id ? '发货中...' : '发货' }}
+            </button>
+            <button
+              v-if="order.status === 'shipped'"
+              class="btn btn-primary btn-sm"
+              :disabled="completingId === order.id"
+              @click="handleConfirmReceive(order)"
+            >
+              {{ completingId === order.id ? '确认中...' : '确认收货' }}
             </button>
           </div>
         </div>
@@ -140,6 +165,9 @@ const page = ref(1);
 const pageSize = ref(10);
 const total = ref(0);
 const cancellingId = ref(null);
+const payingId = ref(null);
+const shippingId = ref(null);
+const completingId = ref(null);
 const activeTab = ref('all');
 
 const defaultPlaceholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PHRleHQgeD0iNTAlIiB5PSI1NSUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNiIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPuWbvueJh+WKoOWvhueggTwvdGV4dD48L3N2Zz4=';
@@ -229,8 +257,9 @@ const handleCancelOrder = async (orderId) => {
 };
 
 const handlePay = async (order) => {
-  if (!confirm(`确定要支付订单 ¥${order.total_amount.toFixed(2)} 吗？')) return;
+  if (!confirm(`确定要支付订单 ¥${order.total_amount.toFixed(2)} 吗？`)) return;
 
+  payingId.value = order.id;
   try {
     const res = await updateOrderStatus(order.id, 'paid');
     if (res.data.success) {
@@ -241,6 +270,46 @@ const handlePay = async (order) => {
     }
   } catch (err) {
     alert(err.response?.data?.message || '支付失败');
+  } finally {
+    payingId.value = null;
+  }
+};
+
+const handleShip = async (order) => {
+  if (!confirm('确定要发货吗？')) return;
+
+  shippingId.value = order.id;
+  try {
+    const res = await updateOrderStatus(order.id, 'shipped');
+    if (res.data.success) {
+      alert('发货成功！');
+      loadOrders();
+    } else {
+      alert(res.data.message || '发货失败');
+    }
+  } catch (err) {
+    alert(err.response?.data?.message || '发货失败');
+  } finally {
+    shippingId.value = null;
+  }
+};
+
+const handleConfirmReceive = async (order) => {
+  if (!confirm('确定要确认收货吗？')) return;
+
+  completingId.value = order.id;
+  try {
+    const res = await updateOrderStatus(order.id, 'completed');
+    if (res.data.success) {
+      alert('确认收货成功！');
+      loadOrders();
+    } else {
+      alert(res.data.message || '确认收货失败');
+    }
+  } catch (err) {
+    alert(err.response?.data?.message || '确认收货失败');
+  } finally {
+    completingId.value = null;
   }
 };
 
