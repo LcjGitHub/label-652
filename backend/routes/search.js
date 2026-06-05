@@ -196,15 +196,15 @@ router.get('/suggestions', async (ctx) => {
   
   const suggestions = await allQuery(`
     SELECT DISTINCT 
-      CASE 
-        WHEN LOWER(name) LIKE ? THEN name
-        WHEN LOWER(description) LIKE ? THEN SUBSTR(description, 1, 50)
-        WHEN LOWER(category) LIKE ? THEN category
-      END as suggestion,
+      id,
+      name,
+      category,
+      SUBSTR(description, 1, 100) as description,
       CASE 
         WHEN LOWER(name) LIKE ? THEN 1
         WHEN LOWER(category) LIKE ? THEN 2
-        ELSE 3
+        WHEN LOWER(description) LIKE ? THEN 3
+        ELSE 4
       END as priority
     FROM products
     WHERE LOWER(name) LIKE ? 
@@ -212,15 +212,11 @@ router.get('/suggestions', async (ctx) => {
        OR LOWER(category) LIKE ?
     ORDER BY priority, name
     LIMIT ?
-  `, [keyword, keyword, keyword, keyword, keyword, keyword, keyword, keyword, limitNum]);
-  
-  const uniqueSuggestions = [...new Map(
-    suggestions.map(s => [s.suggestion?.toLowerCase(), s])
-  ).values()].filter(s => s.suggestion);
+  `, [keyword, keyword, keyword, keyword, keyword, keyword, limitNum]);
   
   ctx.body = {
     success: true,
-    data: uniqueSuggestions.slice(0, limitNum)
+    data: suggestions
   };
 });
 

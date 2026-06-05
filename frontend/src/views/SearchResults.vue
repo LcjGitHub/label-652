@@ -185,6 +185,7 @@ const categories = ref([]);
 const products = ref([]);
 const loading = ref(false);
 const addingCartId = ref(null);
+const isSyncingFromUrl = ref(false);
 
 const selectedCategory = ref('all');
 const minPrice = ref(null);
@@ -290,43 +291,6 @@ const fetchSearchResults = async () => {
   }
 };
 
-const handleCategoryChange = () => {
-  pagination.page = 1;
-  fetchSearchResults();
-};
-
-const handlePriceChange = () => {
-  pagination.page = 1;
-  fetchSearchResults();
-};
-
-const handleSortChange = (value) => {
-  if (sortBy.value === value && value !== 'relevance' && value !== 'newest') {
-    sortOrder.value = sortOrder.value === 'desc' ? 'asc' : 'desc';
-  } else {
-    sortBy.value = value;
-    sortOrder.value = 'desc';
-  }
-  pagination.page = 1;
-  fetchSearchResults();
-};
-
-const changePage = (page) => {
-  pagination.page = page;
-  fetchSearchResults();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-};
-
-const resetFilters = () => {
-  selectedCategory.value = 'all';
-  minPrice.value = null;
-  maxPrice.value = null;
-  sortBy.value = 'relevance';
-  sortOrder.value = 'desc';
-  pagination.page = 1;
-  fetchSearchResults();
-};
-
 const goToDetail = (id) => {
   router.push(`/product/${id}`);
 };
@@ -347,31 +311,88 @@ const quickAddToCart = async (product) => {
   }
 };
 
+const syncToUrl = () => {
+  if (isSyncingFromUrl.value) return;
+  
+  const query = {};
+  if (searchQuery.value) query.q = searchQuery.value;
+  if (selectedCategory.value && selectedCategory.value !== 'all') query.category = selectedCategory.value;
+  if (minPrice.value !== null && minPrice.value !== '') query.minPrice = minPrice.value;
+  if (maxPrice.value !== null && maxPrice.value !== '') query.maxPrice = maxPrice.value;
+  if (sortBy.value && sortBy.value !== 'relevance') query.sortBy = sortBy.value;
+  if (sortOrder.value && sortOrder.value !== 'desc' && sortBy.value !== 'relevance' && sortBy.value !== 'newest') query.sortOrder = sortOrder.value;
+  if (pagination.page > 1) query.page = pagination.page;
+  
+  router.replace({ path: '/search', query });
+};
+
 const initFromQuery = () => {
-  searchQuery.value = route.query.q || '';
-  if (route.query.category) {
-    selectedCategory.value = route.query.category;
-  }
-  if (route.query.sortBy) {
-    sortBy.value = route.query.sortBy;
-  }
-  if (route.query.sortOrder) {
-    sortOrder.value = route.query.sortOrder;
-  }
-  if (route.query.page) {
+  isSyncingFromUrl.value = true;
+  try {
+    searchQuery.value = route.query.q || '';
+    selectedCategory.value = route.query.category || 'all';
+    sortBy.value = route.query.sortBy || 'relevance';
+    sortOrder.value = route.query.sortOrder || 'desc';
     pagination.page = parseInt(route.query.page) || 1;
-  }
-  if (route.query.minPrice) {
-    minPrice.value = parseFloat(route.query.minPrice);
-  }
-  if (route.query.maxPrice) {
-    maxPrice.value = parseFloat(route.query.maxPrice);
+    minPrice.value = route.query.minPrice !== undefined ? parseFloat(route.query.minPrice) : null;
+    maxPrice.value = route.query.maxPrice !== undefined ? parseFloat(route.query.maxPrice) : null;
+  } finally {
+    setTimeout(() => {
+      isSyncingFromUrl.value = false;
+    }, 0);
   }
 };
 
-watch(() => route.query, () => {
-  initFromQuery();
+const handleCategoryChange = () => {
+  pagination.page = 1;
+  syncToUrl();
   fetchSearchResults();
+};
+
+const handlePriceChange = () => {
+  pagination.page = 1;
+  syncToUrl();
+  fetchSearchResults();
+};
+
+const handleSortChange = (value) => {
+  if (sortBy.value === value && value !== 'relevance' && value !== 'newest') {
+    sortOrder.value = sortOrder.value === 'desc' ? 'asc' : 'desc';
+  } else {
+    sortBy.value = value;
+    sortOrder.value = 'desc';
+  }
+  pagination.page = 1;
+  syncToUrl();
+  fetchSearchResults();
+};
+
+const changePage = (page) => {
+  pagination.page = page;
+  syncToUrl();
+  fetchSearchResults();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+};
+
+const resetFilters = () => {
+  selectedCategory.value = 'all';
+  minPrice.value = null;
+  maxPrice.value = null;
+  sortBy.value = 'relevance';
+  sortOrder.value = 'desc';
+  pagination.page = 1;
+  syncToUrl();
+  fetchSearchResults();
+};
+
+let urlWatchDebounce = null;
+watch(() => route.query, () => {
+  if (isSyncingFromUrl.value) return;
+  if (urlWatchDebounce) clearTimeout(urlWatchDebounce);
+  urlWatchDebounce = setTimeout(() => {
+    initFromQuery();
+    fetchSearchResults();
+  }, 50);
 }, { deep: true });
 
 onMounted(() => {

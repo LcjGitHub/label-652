@@ -102,6 +102,12 @@ watch(() => route.path, () => {
     loadUser();
   }
 });
+
+watch(() => [route.path, route.query.q], ([path, q]) => {
+  if (path === '/search' && typeof q === 'string') {
+    searchQuery.value = q;
+  }
+}, { immediate: true });
 </script>
 
 <style>

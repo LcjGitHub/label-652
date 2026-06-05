@@ -1,9 +1,4 @@
-import axios from 'axios';
-
-const api = axios.create({
-  baseURL: '/api',
-  timeout: 10000
-});
+import api from './products.js';
 
 export const recordBrowse = (productId) => {
   return api.get(`/recommendations/browse/${productId}`);

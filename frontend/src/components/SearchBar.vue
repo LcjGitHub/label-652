@@ -39,15 +39,18 @@
         </div>
         <div
           v-for="(item, index) in suggestions"
-          :key="index"
+          :key="item.id || index"
           class="dropdown-item"
-          @mousedown.prevent="selectSuggestion(item.suggestion)"
+          @mousedown.prevent="selectSuggestion(item.name)"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="11" cy="11" r="8"></circle>
             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
           </svg>
-          <span v-html="highlightKeyword(item.suggestion)"></span>
+          <span class="suggestion-text">
+            <span v-html="highlightKeyword(item.name)"></span>
+            <span v-if="item.category" class="suggestion-category">{{ item.category }}</span>
+          </span>
         </div>
       </div>
 
@@ -111,7 +114,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
-import { getSearchSuggestions, getHotKeywords, getSearchHistory, clearSearchHistory } from '../api/search.js';
+import { searchProducts, getSearchSuggestions, getHotKeywords, getSearchHistory, clearSearchHistory } from '../api/search.js';
 import { useAuth } from '../composables/useAuth.js';
 
 const props = defineProps({
@@ -239,10 +242,34 @@ const handleClearHistory = async () => {
   }
 };
 
+const syncLocalHistoryToServer = async () => {
+  const localHistory = JSON.parse(localStorage.getItem('searchHistory') || '[]');
+  if (localHistory.length === 0) return;
+  
+  for (const item of localHistory.slice(0, 10)) {
+    try {
+      await searchProducts({ q: item.keyword, limit: 1, page: 1 });
+    } catch (e) {
+    }
+  }
+  
+  localStorage.removeItem('searchHistory');
+  await loadSearchHistory();
+};
+
+const saveToLocalHistory = (keyword) => {
+  const localHistory = JSON.parse(localStorage.getItem('searchHistory') || '[]');
+  const filtered = localHistory.filter(item => item.keyword.toLowerCase() !== keyword.toLowerCase());
+  filtered.unshift({ keyword, last_searched: new Date().toISOString() });
+  localStorage.setItem('searchHistory', JSON.stringify(filtered.slice(0, 20)));
+};
+
 const handleSearch = () => {
   const query = searchQuery.value.trim();
   if (query) {
-    saveToLocalHistory(query);
+    if (!isAuthenticated.value) {
+      saveToLocalHistory(query);
+    }
     emit('search', query);
     router.push({
       path: '/search',
@@ -255,20 +282,15 @@ const handleSearch = () => {
 const selectSuggestion = (suggestion) => {
   searchQuery.value = suggestion;
   emit('update:modelValue', suggestion);
-  saveToLocalHistory(suggestion);
+  if (!isAuthenticated.value) {
+    saveToLocalHistory(suggestion);
+  }
   emit('search', suggestion);
   router.push({
     path: '/search',
     query: { q: suggestion }
   });
   showDropdown.value = false;
-};
-
-const saveToLocalHistory = (keyword) => {
-  const localHistory = JSON.parse(localStorage.getItem('searchHistory') || '[]');
-  const filtered = localHistory.filter(item => item.keyword.toLowerCase() !== keyword.toLowerCase());
-  filtered.unshift({ keyword, last_searched: new Date().toISOString() });
-  localStorage.setItem('searchHistory', JSON.stringify(filtered.slice(0, 20)));
 };
 
 const clearSearch = () => {
@@ -297,6 +319,14 @@ const handleClickOutside = (event) => {
 watch(() => props.modelValue, (newVal) => {
   if (newVal !== searchQuery.value) {
     searchQuery.value = newVal;
+  }
+});
+
+watch(isAuthenticated, async (newVal, oldVal) => {
+  if (newVal && !oldVal) {
+    await syncLocalHistoryToServer();
+  } else {
+    await loadSearchHistory();
   }
 });
 
@@ -476,6 +506,31 @@ onUnmounted(() => {
 .dropdown-item svg {
   color: #ccc;
   flex-shrink: 0;
+}
+
+.dropdown-item .suggestion-text {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.dropdown-item .suggestion-text span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dropdown-item .suggestion-category {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  background: #f0f2f5;
+  color: #888;
+  border-radius: 10px;
+  font-size: 12px;
 }
 
 .dropdown-item .highlight {
