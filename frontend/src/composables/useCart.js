@@ -10,12 +10,17 @@ import {
 import { useAuth } from './useAuth.js';
 
 const LOCAL_CART_KEY = 'local_cart';
+const MERGE_FLAG_KEY = 'cart_merge_done';
 
 const cartItems = ref([]);
 const cartCount = ref(0);
 const cartTotal = ref(0);
 const isLoading = ref(false);
+const isUpdating = ref(false);
 const isCartDrawerOpen = ref(false);
+const isInitialized = ref(false);
+const mergeInProgress = ref(false);
+const updatingItemId = ref(null);
 
 const getLocalCart = () => {
   try {
@@ -34,10 +39,28 @@ const clearLocalCart = () => {
   localStorage.removeItem(LOCAL_CART_KEY);
 };
 
+const getMergeFlag = () => {
+  return localStorage.getItem(MERGE_FLAG_KEY) === 'true';
+};
+
+const setMergeFlag = (value) => {
+  if (value) {
+    localStorage.setItem(MERGE_FLAG_KEY, 'true');
+  } else {
+    localStorage.removeItem(MERGE_FLAG_KEY);
+  }
+};
+
 const calculateCartStats = (items) => {
   const count = items.reduce((sum, item) => sum + item.quantity, 0);
   const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
   return { count, total };
+};
+
+const updateCartState = (data) => {
+  if (data.items) cartItems.value = data.items;
+  if (data.totalCount !== undefined) cartCount.value = data.totalCount;
+  if (data.totalPrice !== undefined) cartTotal.value = data.totalPrice;
 };
 
 const enrichLocalCartItems = async (items) => {
@@ -71,20 +94,61 @@ const enrichLocalCartItems = async (items) => {
   return enriched;
 };
 
+let authWatcher = null;
+
+const setupAuthWatcher = () => {
+  if (authWatcher) return;
+
+  const { user, isAuthenticated } = useAuth();
+
+  authWatcher = watch(user, async (newUser, oldUser) => {
+    if (newUser && !oldUser) {
+      if (!mergeInProgress.value && !getMergeFlag()) {
+        mergeInProgress.value = true;
+        try {
+          await handleMergeLocalCart();
+          setMergeFlag(true);
+        } finally {
+          mergeInProgress.value = false;
+        }
+      } else if (getMergeFlag()) {
+        await loadCartFromServer();
+      }
+    } else if (!newUser && oldUser) {
+      setMergeFlag(false);
+      await loadCart();
+    }
+  }, { immediate: false });
+};
+
+const loadCartFromServer = async () => {
+  isLoading.value = true;
+  try {
+    const res = await getCart();
+    if (res.data.success) {
+      updateCartState(res.data.data);
+    }
+  } catch (err) {
+    console.error('加载购物车失败:', err);
+  } finally {
+    isLoading.value = false;
+  }
+};
+
 export function useCart() {
   const { isAuthenticated, user } = useAuth();
 
+  if (!isInitialized.value) {
+    isInitialized.value = true;
+    setupAuthWatcher();
+  }
+
   const loadCart = async () => {
-    isLoading.value = true;
-    try {
-      if (isAuthenticated.value) {
-        const res = await getCart();
-        if (res.data.success) {
-          cartItems.value = res.data.data.items;
-          cartCount.value = res.data.data.totalCount;
-          cartTotal.value = res.data.data.totalPrice;
-        }
-      } else {
+    if (isAuthenticated.value) {
+      await loadCartFromServer();
+    } else {
+      isLoading.value = true;
+      try {
         const localItems = getLocalCart();
         const enrichedItems = await enrichLocalCartItems(localItems);
         cartItems.value = enrichedItems;
@@ -95,27 +159,29 @@ export function useCart() {
           product_id: item.product_id,
           quantity: item.quantity
         })));
-      }
-    } catch (err) {
-      console.error('加载购物车失败:', err);
-      if (!isAuthenticated.value) {
+      } catch (err) {
+        console.error('加载购物车失败:', err);
         cartItems.value = [];
         cartCount.value = 0;
         cartTotal.value = 0;
+      } finally {
+        isLoading.value = false;
       }
-    } finally {
-      isLoading.value = false;
+    }
+  };
+
+  const ensureCartLoaded = async () => {
+    if (isAuthenticated.value && cartItems.value.length === 0 && !isLoading.value) {
+      await loadCartFromServer();
     }
   };
 
   const handleAddToCart = async (productId, quantity = 1) => {
-    isLoading.value = true;
     try {
       if (isAuthenticated.value) {
         const res = await addToCart(productId, quantity);
         if (res.data.success) {
-          cartItems.value = res.data.data.items;
-          cartCount.value = res.data.data.totalCount;
+          updateCartState(res.data.data);
           return { success: true, message: res.data.message };
         }
         return { success: false, message: res.data.message };
@@ -152,22 +218,18 @@ export function useCart() {
         success: false,
         message: err.response?.data?.message || '添加失败'
       };
-    } finally {
-      isLoading.value = false;
     }
   };
 
   const handleUpdateQuantity = async (productId, quantity) => {
     if (quantity < 1) return { success: false, message: '数量不能小于1' };
 
-    isLoading.value = true;
+    updatingItemId.value = productId;
     try {
       if (isAuthenticated.value) {
         const res = await updateCartItem(productId, quantity);
         if (res.data.success) {
-          cartItems.value = res.data.data.items;
-          cartCount.value = res.data.data.totalCount;
-          cartTotal.value = res.data.data.totalPrice;
+          updateCartState(res.data.data);
           return { success: true };
         }
         return { success: false, message: res.data.message };
@@ -199,19 +261,17 @@ export function useCart() {
         message: err.response?.data?.message || '更新失败'
       };
     } finally {
-      isLoading.value = false;
+      updatingItemId.value = null;
     }
   };
 
   const handleRemoveFromCart = async (productId) => {
-    isLoading.value = true;
+    updatingItemId.value = productId;
     try {
       if (isAuthenticated.value) {
         const res = await removeFromCart(productId);
         if (res.data.success) {
-          cartItems.value = res.data.data.items;
-          cartCount.value = res.data.data.totalCount;
-          cartTotal.value = res.data.data.totalPrice;
+          updateCartState(res.data.data);
           return { success: true, message: res.data.message };
         }
         return { success: false, message: res.data.message };
@@ -228,12 +288,12 @@ export function useCart() {
         message: err.response?.data?.message || '删除失败'
       };
     } finally {
-      isLoading.value = false;
+      updatingItemId.value = null;
     }
   };
 
   const handleClearCart = async () => {
-    isLoading.value = true;
+    isUpdating.value = true;
     try {
       if (isAuthenticated.value) {
         const res = await clearCart();
@@ -257,7 +317,7 @@ export function useCart() {
         message: err.response?.data?.message || '清空失败'
       };
     } finally {
-      isLoading.value = false;
+      isUpdating.value = false;
     }
   };
 
@@ -265,21 +325,23 @@ export function useCart() {
     const localItems = getLocalCart();
     if (localItems.length === 0 || !isAuthenticated.value) return;
 
+    isLoading.value = true;
     try {
       const res = await mergeCart(localItems);
       if (res.data.success) {
         clearLocalCart();
-        cartItems.value = res.data.data.items;
-        cartCount.value = res.data.data.totalCount;
-        cartTotal.value = res.data.data.totalPrice;
+        updateCartState(res.data.data);
         return { success: true, message: res.data.message };
       }
     } catch (err) {
       console.error('合并购物车失败:', err);
+    } finally {
+      isLoading.value = false;
     }
   };
 
-  const openCartDrawer = () => {
+  const openCartDrawer = async () => {
+    await ensureCartLoaded();
     isCartDrawerOpen.value = true;
   };
 
@@ -287,25 +349,23 @@ export function useCart() {
     isCartDrawerOpen.value = false;
   };
 
-  const toggleCartDrawer = () => {
+  const toggleCartDrawer = async () => {
+    if (!isCartDrawerOpen.value) {
+      await ensureCartLoaded();
+    }
     isCartDrawerOpen.value = !isCartDrawerOpen.value;
   };
-
-  watch(user, async (newUser) => {
-    if (newUser) {
-      await handleMergeLocalCart();
-    } else {
-      await loadCart();
-    }
-  }, { immediate: false });
 
   return {
     cartItems,
     cartCount,
     cartTotal,
     isLoading,
+    isUpdating,
     isCartDrawerOpen,
+    updatingItemId,
     loadCart,
+    loadCartFromServer,
     handleAddToCart,
     handleUpdateQuantity,
     handleRemoveFromCart,
@@ -313,6 +373,7 @@ export function useCart() {
     handleMergeLocalCart,
     openCartDrawer,
     closeCartDrawer,
-    toggleCartDrawer
+    toggleCartDrawer,
+    ensureCartLoaded
   };
 }

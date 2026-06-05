@@ -18,6 +18,9 @@
             <span v-if="cartCount > 0" class="cart-badge">{{ cartCount > 99 ? '99+' : cartCount }}</span>
           </button>
           <div v-if="isAuthenticated" class="user-menu">
+            <router-link to="/orders" class="btn btn-outline btn-sm">
+              我的订单
+            </router-link>
             <div class="user-info">
               <img :src="user?.avatar" :alt="user?.username" class="user-avatar" />
               <span class="user-name">{{ user?.username }}</span>
@@ -43,15 +46,15 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuth } from './composables/useAuth.js';
 import { useCart } from './composables/useCart.js';
 import CartDrawer from './components/CartDrawer.vue';
 
 const route = useRoute();
-const { user, isAuthenticated, handleLogout, loadUser } = useAuth();
-const { cartCount, isCartDrawerOpen, loadCart, toggleCartDrawer, closeCartDrawer } = useCart();
+const { user, isAuthenticated, isLoading: authLoading, handleLogout, loadUser } = useAuth();
+const { cartCount, isCartDrawerOpen, loadCart, loadCartFromServer, toggleCartDrawer, closeCartDrawer } = useCart();
 
 const showAddButton = computed(() => route.path === '/');
 
@@ -62,11 +65,24 @@ const handleAddProduct = () => {
   }
 };
 
-onMounted(() => {
+onMounted(async () => {
   if (localStorage.getItem('token') && !isAuthenticated.value) {
-    loadUser();
+    await loadUser();
+    await nextTick();
+    if (isAuthenticated.value) {
+      await loadCartFromServer();
+    } else {
+      await loadCart();
+    }
+  } else {
+    await loadCart();
   }
-  loadCart();
+});
+
+watch(isAuthenticated, async (newVal, oldVal) => {
+  if (newVal && !oldVal) {
+    await nextTick();
+  }
 });
 
 watch(() => route.path, () => {

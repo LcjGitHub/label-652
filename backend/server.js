@@ -6,6 +6,7 @@ const productsRouter = require('./routes/products');
 const authRouter = require('./routes/auth');
 const reviewsRouter = require('./routes/reviews');
 const cartsRouter = require('./routes/carts');
+const ordersRouter = require('./routes/orders');
 const healthRouter = require('./routes/health');
 const { dbReady } = require('./database');
 const config = require('../config');
@@ -47,6 +48,9 @@ app.use(reviewsRouter.allowedMethods());
 app.use(cartsRouter.routes());
 app.use(cartsRouter.allowedMethods());
 
+app.use(ordersRouter.routes());
+app.use(ordersRouter.allowedMethods());
+
 app.use(productsRouter.routes());
 app.use(productsRouter.allowedMethods());
 
@@ -82,6 +86,7 @@ async function startServer() {
       console.log(`  用户接口: http://${HOST}:${PORT}/api/auth`);
       console.log(`  评价接口: http://${HOST}:${PORT}/api/reviews`);
       console.log(`  购物车接口: http://${HOST}:${PORT}/api/cart`);
+      console.log(`  订单接口: http://${HOST}:${PORT}/api/orders`);
       console.log('========================================');
     });
   } catch (err) {

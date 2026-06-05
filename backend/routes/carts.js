@@ -113,13 +113,15 @@ router.post('/add', authMiddleware, async (ctx) => {
   `, [userId]);
 
   const totalCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+  const totalPrice = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   ctx.body = {
     success: true,
     message: '已添加到购物车',
     data: {
       items: cartItems,
-      totalCount
+      totalCount,
+      totalPrice
     }
   };
 });

@@ -23,6 +23,24 @@ const routes = [
     name: 'Register',
     component: () => import('../views/Register.vue'),
     meta: { guest: true }
+  },
+  {
+    path: '/checkout',
+    name: 'Checkout',
+    component: () => import('../views/Checkout.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/orders',
+    name: 'Orders',
+    component: () => import('../views/Orders.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/orders/:id',
+    name: 'OrderDetail',
+    component: () => import('../views/OrderDetail.vue'),
+    meta: { requiresAuth: true }
   }
 ];
 
@@ -37,6 +55,8 @@ router.beforeEach(async (to, from, next) => {
 
   if (to.meta.guest && token) {
     next('/');
+  } else if (to.meta.requiresAuth && !token) {
+    next('/login');
   } else {
     next();
   }

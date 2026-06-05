@@ -15,7 +15,7 @@
             </div>
 
             <div class="drawer-body">
-              <div v-if="isLoading" class="loading">
+              <div v-if="isLoading && cartItems.length === 0" class="loading">
                 <div class="spinner"></div>
                 <p>加载中...</p>
               </div>
@@ -37,11 +37,13 @@
                   v-for="item in cartItems"
                   :key="item.id"
                   class="cart-item"
+                  :class="{ 'item-updating': isItemUpdating(item.product_id) }"
                 >
                   <img
                     :src="item.image || defaultPlaceholder"
                     :alt="item.name"
                     class="cart-item-image"
+                    :class="{ 'img-loading': isItemUpdating(item.product_id) }"
                     @error="handleImageError($event)"
                   />
                   <div class="cart-item-info">
@@ -51,15 +53,16 @@
                       <div class="quantity-controls">
                         <button
                           class="qty-btn"
-                          :disabled="isLoading"
+                          :disabled="isItemUpdating(item.product_id)"
                           @click="decreaseQuantity(item)"
                         >
-                          −
+                          <span v-if="isItemUpdating(item.product_id)" class="mini-spinner"></span>
+                          <span v-else>−</span>
                         </button>
                         <span class="qty-value">{{ item.quantity }}</span>
                         <button
                           class="qty-btn"
-                          :disabled="isLoading || item.quantity >= item.stock"
+                          :disabled="isItemUpdating(item.product_id) || item.quantity >= item.stock"
                           @click="increaseQuantity(item)"
                         >
                           +
@@ -67,10 +70,10 @@
                       </div>
                       <button
                         class="btn btn-outline btn-xs"
-                        :disabled="isLoading"
+                        :disabled="isItemUpdating(item.product_id)"
                         @click="removeItem(item)"
                       >
-                        删除
+                        {{ isItemUpdating(item.product_id) ? '处理中...' : '删除' }}
                       </button>
                     </div>
                   </div>
@@ -91,14 +94,14 @@
               <div class="footer-actions">
                 <button
                   class="btn btn-outline"
-                  :disabled="isLoading"
+                  :disabled="isUpdating || updatingItemId !== null"
                   @click="handleClearCart"
                 >
-                  清空购物车
+                  {{ isUpdating ? '处理中...' : '清空购物车' }}
                 </button>
                 <button
                   class="btn btn-primary"
-                  :disabled="isLoading"
+                  :disabled="isUpdating || updatingItemId !== null"
                   @click="handleCheckout"
                 >
                   去结算
@@ -113,7 +116,9 @@
 </template>
 
 <script setup>
+import { useRouter } from 'vue-router';
 import { useCart } from '../composables/useCart.js';
+import { useAuth } from '../composables/useAuth.js';
 
 const props = defineProps({
   show: {
@@ -124,11 +129,16 @@ const props = defineProps({
 
 const emit = defineEmits(['close']);
 
+const router = useRouter();
+const { isAuthenticated } = useAuth();
+
 const {
   cartItems,
   cartCount,
   cartTotal,
   isLoading,
+  isUpdating,
+  updatingItemId,
   handleUpdateQuantity,
   handleRemoveFromCart,
   handleClearCart: clearCartApi,
@@ -136,6 +146,10 @@ const {
 } = useCart();
 
 const defaultPlaceholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PHRleHQgeD0iNTAlIiB5PSI1NSUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNiIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPuWbvueJh+WKoOWvhueggTwvdGV4dD48L3N2Zz4=';
+
+const isItemUpdating = (productId) => {
+  return updatingItemId.value === productId;
+};
 
 const handleClose = () => {
   closeCartDrawer();
@@ -147,6 +161,7 @@ const handleImageError = (event) => {
 };
 
 const decreaseQuantity = async (item) => {
+  if (isItemUpdating(item.product_id)) return;
   if (item.quantity <= 1) {
     removeItem(item);
     return;
@@ -158,6 +173,7 @@ const decreaseQuantity = async (item) => {
 };
 
 const increaseQuantity = async (item) => {
+  if (isItemUpdating(item.product_id)) return;
   const result = await handleUpdateQuantity(item.product_id, item.quantity + 1);
   if (!result.success) {
     alert(result.message);
@@ -165,6 +181,7 @@ const increaseQuantity = async (item) => {
 };
 
 const removeItem = async (item) => {
+  if (isItemUpdating(item.product_id)) return;
   if (!confirm(`确定要删除 "${item.name}" 吗？`)) return;
   const result = await handleRemoveFromCart(item.product_id);
   if (!result.success) {
@@ -173,6 +190,7 @@ const removeItem = async (item) => {
 };
 
 const handleClearCart = async () => {
+  if (isUpdating.value) return;
   if (!confirm('确定要清空购物车吗？')) return;
   const result = await clearCartApi();
   if (!result.success) {
@@ -181,7 +199,17 @@ const handleClearCart = async () => {
 };
 
 const handleCheckout = () => {
-  alert('结算功能开发中...\n\n当前购物车合计：¥' + cartTotal.value.toFixed(2));
+  if (!isAuthenticated.value) {
+    alert('请先登录后再结算');
+    router.push('/login');
+    return;
+  }
+  if (cartItems.value.length === 0) {
+    alert('购物车是空的');
+    return;
+  }
+  closeCartDrawer();
+  router.push('/checkout');
 };
 </script>
 
@@ -292,6 +320,11 @@ const handleCheckout = () => {
   background: #f9fafb;
   border-radius: 12px;
   margin-bottom: 12px;
+  transition: opacity 0.2s;
+}
+
+.cart-item.item-updating {
+  opacity: 0.6;
 }
 
 .cart-item-image {
@@ -301,6 +334,21 @@ const handleCheckout = () => {
   border-radius: 8px;
   background: #f0f0f0;
   flex-shrink: 0;
+  transition: opacity 0.2s;
+}
+
+.cart-item-image.img-loading {
+  opacity: 0.5;
+}
+
+.mini-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #e0e0e0;
+  border-top-color: #667eea;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
 }
 
 .cart-item-info {
