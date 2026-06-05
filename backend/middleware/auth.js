@@ -38,4 +38,22 @@ async function authMiddleware(ctx, next) {
   }
 }
 
-module.exports = { authMiddleware };
+async function optionalAuthMiddleware(ctx, next) {
+  const authHeader = ctx.headers.authorization;
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7);
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      const user = await getQuery('SELECT id, username, email, avatar, created_at FROM users WHERE id = ?', [decoded.userId]);
+      if (user) {
+        ctx.state.user = user;
+      }
+    } catch (err) {
+    }
+  }
+
+  await next();
+}
+
+module.exports = { authMiddleware, optionalAuthMiddleware };

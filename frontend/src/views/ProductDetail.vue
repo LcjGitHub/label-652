@@ -198,6 +198,50 @@
           </button>
         </div>
       </div>
+
+      <div v-if="similarProducts.length > 0" class="recommendations-section">
+        <div class="recommendations-header">
+          <h2>猜你喜欢</h2>
+          <span class="recommendations-subtitle">根据您浏览的商品推荐</span>
+        </div>
+        <div class="recommendations-grid">
+          <div
+            v-for="item in similarProducts"
+            :key="item.id"
+            class="recommendation-card"
+            @click="goToProduct(item.id)"
+          >
+            <div class="rec-image">
+              <img
+                :src="item.image || defaultPlaceholder"
+                :alt="item.name"
+                @error="handleRecImageError($event)"
+              />
+              <span class="rec-category">{{ item.category }}</span>
+            </div>
+            <div class="rec-info">
+              <h4 class="rec-name">{{ item.name }}</h4>
+              <div class="rec-rating" v-if="item.avg_rating > 0">
+                <div class="stars-small">
+                  <span
+                    v-for="star in 5"
+                    :key="star"
+                    class="star small"
+                    :class="{ filled: star <= Math.round(item.avg_rating) }"
+                  >
+                    ★
+                  </span>
+                </div>
+                <span class="rec-rating-score">{{ item.avg_rating.toFixed(1) }}</span>
+              </div>
+              <div class="rec-footer">
+                <span class="rec-price">¥{{ item.price.toFixed(2) }}</span>
+                <span v-if="item.sales_count > 0" class="rec-sales">已售 {{ item.sales_count }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <ReviewModal
@@ -243,6 +287,7 @@ import {
   deleteReview,
   getMyReviewForProduct
 } from '../api/reviews.js';
+import { recordBrowse, getSimilarProducts } from '../api/recommendations.js';
 import { useAuth } from '../composables/useAuth.js';
 import { useCart } from '../composables/useCart.js';
 import ReviewModal from '../components/ReviewModal.vue';
@@ -260,6 +305,8 @@ const reviews = ref([]);
 const reviewStats = ref(null);
 const reviewsLoading = ref(false);
 const addToCartQuantity = ref(1);
+const similarProducts = ref([]);
+const similarLoading = ref(false);
 
 const showReviewModal = ref(false);
 const editingReview = ref(null);
@@ -320,6 +367,37 @@ const fetchUserReview = async () => {
 
 const handleImageError = (event) => {
   event.target.src = defaultPlaceholder;
+};
+
+const handleRecImageError = (event) => {
+  event.target.src = defaultPlaceholder;
+};
+
+const goToProduct = (id) => {
+  router.push(`/product/${id}`);
+};
+
+const fetchSimilarProducts = async () => {
+  similarLoading.value = true;
+  try {
+    const res = await getSimilarProducts(productId.value, 6);
+    if (res.data.success) {
+      similarProducts.value = res.data.data;
+    }
+  } catch (err) {
+    console.error('获取相似商品失败:', err);
+    similarProducts.value = [];
+  } finally {
+    similarLoading.value = false;
+  }
+};
+
+const recordBrowseHistory = async () => {
+  try {
+    await recordBrowse(productId.value);
+  } catch (err) {
+    console.error('记录浏览历史失败:', err);
+  }
 };
 
 const showToast = (message, type = 'success') => {
@@ -492,6 +570,17 @@ onMounted(() => {
   fetchReviewStats();
   fetchReviews();
   fetchUserReview();
+  fetchSimilarProducts();
+  recordBrowseHistory();
+});
+
+watch(productId, () => {
+  fetchProduct();
+  fetchReviewStats();
+  fetchReviews();
+  fetchUserReview();
+  fetchSimilarProducts();
+  recordBrowseHistory();
 });
 
 watch(user, (newUser) => {
@@ -1086,6 +1175,137 @@ watch(user, (newUser) => {
   }
 }
 
+.recommendations-section {
+  background: white;
+  border-radius: 16px;
+  padding: 24px 32px;
+  margin-top: 24px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.recommendations-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.recommendations-header h2 {
+  font-size: 20px;
+  color: #333;
+  margin: 0;
+}
+
+.recommendations-subtitle {
+  font-size: 13px;
+  color: #999;
+}
+
+.recommendations-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.recommendation-card {
+  background: #fafafa;
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid #f0f0f0;
+}
+
+.recommendation-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+  border-color: #667eea;
+}
+
+.rec-image {
+  position: relative;
+  width: 100%;
+  height: 140px;
+  overflow: hidden;
+  background: #f0f0f0;
+}
+
+.rec-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.rec-category {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: rgba(102, 126, 234, 0.9);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.rec-info {
+  padding: 12px;
+}
+
+.rec-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+  margin: 0 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rec-rating {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.stars-small {
+  display: flex;
+  gap: 1px;
+}
+
+.star.small {
+  font-size: 12px;
+  color: #ddd;
+}
+
+.star.small.filled {
+  color: #f1c40f;
+}
+
+.rec-rating-score {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f1c40f;
+}
+
+.rec-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.rec-price {
+  font-size: 16px;
+  font-weight: 700;
+  color: #e74c3c;
+}
+
+.rec-sales {
+  font-size: 11px;
+  color: #999;
+}
+
 @media (max-width: 768px) {
   .product-main {
     grid-template-columns: 1fr;
@@ -1108,6 +1328,23 @@ watch(user, (newUser) => {
 
   .reviews-section {
     padding: 20px;
+  }
+
+  .recommendations-section {
+    padding: 16px;
+  }
+
+  .recommendations-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+  }
+
+  .rec-image {
+    height: 110px;
+  }
+
+  .rec-name {
+    font-size: 13px;
   }
 }
 </style>

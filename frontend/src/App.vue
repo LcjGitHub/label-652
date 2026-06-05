@@ -1,10 +1,11 @@
 <template>
   <div class="app">
     <header class="header">
-      <div class="container header-content">
+      <div class="header-content">
         <router-link to="/" class="logo-link">
           <h1 class="title">商品管理系统</h1>
         </router-link>
+        <SearchBar v-model="searchQuery" @search="handleSearch" />
         <div class="header-actions">
           <button v-if="showAddButton" class="btn btn-primary" @click="handleAddProduct">
             + 添加商品
@@ -47,16 +48,27 @@
 
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuth } from './composables/useAuth.js';
 import { useCart } from './composables/useCart.js';
 import CartDrawer from './components/CartDrawer.vue';
+import SearchBar from './components/SearchBar.vue';
 
 const route = useRoute();
+const router = useRouter();
 const { user, isAuthenticated, isLoading: authLoading, handleLogout, loadUser } = useAuth();
 const { cartCount, isCartDrawerOpen, loadCart, loadCartFromServer, toggleCartDrawer, closeCartDrawer } = useCart();
 
+const searchQuery = ref('');
+
 const showAddButton = computed(() => route.path === '/');
+
+const handleSearch = (query) => {
+  router.push({
+    path: '/search',
+    query: { q: query }
+  });
+};
 
 const handleAddProduct = () => {
   if (route.path === '/') {
@@ -131,6 +143,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 20px;
 }
 
 .logo-link {

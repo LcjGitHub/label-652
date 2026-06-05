@@ -100,6 +100,39 @@ async function initDatabase() {
     )
   `);
 
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS search_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      keyword TEXT NOT NULL,
+      search_count INTEGER DEFAULT 1,
+      last_searched_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_search_history_keyword ON search_history(keyword);
+    CREATE INDEX IF NOT EXISTS idx_search_history_user ON search_history(user_id);
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS browse_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      product_id INTEGER NOT NULL,
+      viewed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_browse_history_user ON browse_history(user_id);
+    CREATE INDEX IF NOT EXISTS idx_browse_history_product ON browse_history(product_id);
+  `);
+
   const productCountResult = await db.execute('SELECT COUNT(*) as count FROM products');
   const productCount = productCountResult.rows[0].count;
 

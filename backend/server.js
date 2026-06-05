@@ -8,6 +8,8 @@ const reviewsRouter = require('./routes/reviews');
 const cartsRouter = require('./routes/carts');
 const ordersRouter = require('./routes/orders');
 const healthRouter = require('./routes/health');
+const searchRouter = require('./routes/search');
+const recommendationsRouter = require('./routes/recommendations');
 const { dbReady } = require('./database');
 const config = require('../config');
 
@@ -54,6 +56,12 @@ app.use(ordersRouter.allowedMethods());
 app.use(productsRouter.routes());
 app.use(productsRouter.allowedMethods());
 
+app.use(searchRouter.routes());
+app.use(searchRouter.allowedMethods());
+
+app.use(recommendationsRouter.routes());
+app.use(recommendationsRouter.allowedMethods());
+
 async function checkPortAvailable(port, host) {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -87,6 +95,8 @@ async function startServer() {
       console.log(`  评价接口: http://${HOST}:${PORT}/api/reviews`);
       console.log(`  购物车接口: http://${HOST}:${PORT}/api/cart`);
       console.log(`  订单接口: http://${HOST}:${PORT}/api/orders`);
+      console.log(`  搜索接口: http://${HOST}:${PORT}/api/search`);
+      console.log(`  推荐接口: http://${HOST}:${PORT}/api/recommendations`);
       console.log('========================================');
     });
   } catch (err) {
