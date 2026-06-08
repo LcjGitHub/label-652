@@ -99,8 +99,8 @@
           <h2 class="section-title">商品清单</h2>
           <div class="cart-items">
             <div
-              v-for="item in cartItems"
-              :key="item.id"
+              v-for="(item, idx) in checkoutItemDetails"
+              :key="idx"
               class="cart-item"
             >
               <img
@@ -125,11 +125,11 @@
               </div>
               <div class="item-subtotal">
                 <div v-if="item.promotion && item.promotion.price && item.promotion.price < item.price" class="item-subtotal-promotion">
-                  <span class="subtotal-original">¥{{ (item.price * item.quantity).toFixed(2) }}</span>
-                  <span class="subtotal-final">¥{{ (item.promotion.price * item.quantity).toFixed(2) }}</span>
+                  <span class="subtotal-original">¥{{ item.subtotal.toFixed(2) }}</span>
+                  <span class="subtotal-final">¥{{ item.final_subtotal.toFixed(2) }}</span>
                 </div>
                 <div v-else>
-                  ¥{{ (item.price * item.quantity).toFixed(2) }}
+                  ¥{{ item.final_subtotal.toFixed(2) }}
                 </div>
               </div>
             </div>
@@ -166,7 +166,7 @@
             <span class="coupon-select-value">
               <span v-if="selectedCoupon">已选 -¥{{ discountCalculation.coupon_discount.toFixed(2) }}</span>
               <span v-else-if="availableCoupons.length > 0">
-                {{ availableCoupons.filter(c => c.can_use).length }} 张可用
+                {{ availableCoupons.filter(c => c.available).length }} 张可用
               </span>
               <span v-else>暂无可选</span>
               <span class="arrow">›</span>
@@ -176,9 +176,9 @@
             <span>运费</span>
             <span class="free">免运费</span>
           </div>
-          <div v-if="discountCalculation.discount_amount > 0" class="summary-row total-discount">
+          <div v-if="discountCalculation.total_discount > 0" class="summary-row total-discount">
             <span>共优惠</span>
-            <span class="discount-value">-¥{{ discountCalculation.discount_amount.toFixed(2) }}</span>
+            <span class="discount-value">-¥{{ discountCalculation.total_discount.toFixed(2) }}</span>
           </div>
           <div class="summary-row total">
             <span>应付金额</span>
@@ -215,12 +215,12 @@
             <div v-else class="modal-coupons-list">
               <div
                 v-for="coupon in availableCoupons"
-                :key="coupon.user_coupon_id"
+                :key="coupon.id"
                 class="modal-coupon-item"
-                :class="{ 'coupon-selected': selectedUserCouponId === coupon.user_coupon_id, 'coupon-disabled': !coupon.can_use }"
+                :class="{ 'coupon-selected': selectedCouponId === coupon.id, 'coupon-disabled': !coupon.available }"
                 @click="selectCoupon(coupon)"
               >
-                <div class="modal-coupon-left" :class="{ 'coupon-cant-use': !coupon.can_use }">
+                <div class="modal-coupon-left" :class="{ 'coupon-cant-use': !coupon.available }">
                   <div class="modal-coupon-value">
                     <template v-if="coupon.type === 'fixed'">
                       <span class="modal-coupon-symbol">¥</span>
@@ -232,8 +232,8 @@
                     </template>
                   </div>
                   <div class="modal-coupon-condition">
-                    <template v-if="coupon.min_order_amount > 0">
-                      满 ¥{{ coupon.min_order_amount }} 可用
+                    <template v-if="coupon.min_amount > 0">
+                      满 ¥{{ coupon.min_amount }} 可用
                     </template>
                     <template v-else>
                       无门槛
@@ -242,10 +242,10 @@
                 </div>
                 <div class="modal-coupon-right">
                   <div class="modal-coupon-name">{{ coupon.name }}</div>
-                  <div class="modal-coupon-expire">{{ coupon.displayText }}</div>
-                  <div v-if="!coupon.can_use" class="coupon-cant-use-reason">{{ coupon.reason }}</div>
+                  <div class="modal-coupon-expire">{{ coupon.display_text }}</div>
+                  <div v-if="!coupon.available" class="coupon-cant-use-reason">{{ coupon.reason }}</div>
                 </div>
-                <div v-if="selectedUserCouponId === coupon.user_coupon_id" class="coupon-checkmark">
+                <div v-if="selectedCouponId === coupon.id" class="coupon-checkmark">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="20 6 9 17 4 12"></polyline>
                   </svg>
@@ -254,7 +254,7 @@
             </div>
           </div>
           <div class="coupon-modal-footer">
-            <button class="btn btn-outline" @click="selectedUserCouponId = null; showCouponModal = false;">
+            <button class="btn btn-outline" @click="selectedCouponId = null; showCouponModal = false;">
               不使用优惠券
             </button>
           </div>
@@ -294,20 +294,37 @@ const showSuccessToast = ref(false);
 const successMessage = ref('');
 const availableCoupons = ref([]);
 const couponsLoading = ref(false);
-const selectedUserCouponId = ref(null);
+const selectedCouponId = ref(null);
 const showCouponModal = ref(false);
 const discountCalculation = ref({
   original_total: 0,
   promotion_discount: 0,
   coupon_discount: 0,
-  discount_amount: 0,
-  final_total: 0
+  total_discount: 0,
+  final_total: 0,
+  item_details: []
 });
 const defaultPlaceholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PHRleHQgeD0iNTAlIiB5PSI1NSUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNiIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPuWbvueJh+WKoOWvhueggTwvdGV4dD48L3N2Zz4=';
 
 const selectedCoupon = computed(() => {
-  if (!selectedUserCouponId.value) return null;
-  return availableCoupons.value.find(c => c.user_coupon_id === selectedUserCouponId.value) || null;
+  if (!selectedCouponId.value) return null;
+  return availableCoupons.value.find(c => c.id === selectedCouponId.value) || null;
+});
+
+const checkoutItemDetails = computed(() => {
+  if (discountCalculation.value.item_details && discountCalculation.value.item_details.length > 0) {
+    return discountCalculation.value.item_details;
+  }
+  return cartItems.value.map(item => ({
+    name: item.name,
+    image: item.image,
+    sku_name: item.sku_name || null,
+    price: item.price,
+    quantity: item.quantity,
+    subtotal: item.price * item.quantity,
+    promotion: item.promotion || null,
+    final_subtotal: item.price * item.quantity
+  }));
 });
 
 const addressList = ref([
@@ -341,10 +358,17 @@ const fetchDiscountCalc = async () => {
   if (cartItems.value.length === 0) return;
   try {
     const res = await calculateOrder({
-      user_coupon_id: selectedUserCouponId.value
+      user_coupon_id: selectedCouponId.value
     });
     if (res.data.success) {
-      discountCalculation.value = res.data.data;
+      discountCalculation.value = {
+        original_total: res.data.data.original_total,
+        promotion_discount: res.data.data.promotion_discount,
+        coupon_discount: res.data.data.coupon_discount,
+        total_discount: res.data.data.total_discount,
+        final_total: res.data.data.final_total,
+        item_details: res.data.data.item_details || []
+      };
     }
   } catch (err) {
     console.error('计算优惠失败:', err);
@@ -357,11 +381,11 @@ const fetchAvailableCoupons = async () => {
   try {
     const res = await getMyAvailableCoupons({ total_amount: discountCalculation.value.original_total || cartTotal.value });
     if (res.data.success) {
-      availableCoupons.value = res.data.data.available || [];
-      const validCoupons = availableCoupons.value.filter(c => c.can_use);
-      if (validCoupons.length > 0 && !selectedUserCouponId.value) {
-        validCoupons.sort((a, b) => b.discount_amount - a.discount_amount);
-        selectedUserCouponId.value = validCoupons[0].user_coupon_id;
+      availableCoupons.value = [...(res.data.data.available || []), ...(res.data.data.unavailable || [])];
+      const validCoupons = availableCoupons.value.filter(c => c.available);
+      if (validCoupons.length > 0 && !selectedCouponId.value) {
+        validCoupons.sort((a, b) => b.discount - a.discount);
+        selectedCouponId.value = validCoupons[0].id;
       }
     }
   } catch (err) {
@@ -372,11 +396,11 @@ const fetchAvailableCoupons = async () => {
 };
 
 const selectCoupon = (coupon) => {
-  if (!coupon.can_use) return;
-  if (selectedUserCouponId.value === coupon.user_coupon_id) {
-    selectedUserCouponId.value = null;
+  if (!coupon.available) return;
+  if (selectedCouponId.value === coupon.id) {
+    selectedCouponId.value = null;
   } else {
-    selectedUserCouponId.value = coupon.user_coupon_id;
+    selectedCouponId.value = coupon.id;
   }
   showCouponModal.value = false;
 };
@@ -393,7 +417,7 @@ const handleSubmitOrder = async () => {
       shipping_address: formData.shipping_address.trim(),
       payment_method: formData.payment_method,
       remark: formData.remark.trim(),
-      user_coupon_id: selectedUserCouponId.value
+      user_coupon_id: selectedCouponId.value
     });
 
     if (res.data.success) {
@@ -413,7 +437,7 @@ const handleSubmitOrder = async () => {
   }
 };
 
-watch([cartItems, selectedUserCouponId], () => {
+watch([cartItems, selectedCouponId], () => {
   fetchDiscountCalc();
 }, { deep: true, immediate: false });
 

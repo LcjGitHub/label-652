@@ -598,6 +598,8 @@ async function initDatabase() {
   await addColumnIfNotExists('orders', 'coupon_id', 'INTEGER');
   await addColumnIfNotExists('orders', 'promotion_discount', 'REAL DEFAULT 0');
   await addColumnIfNotExists('orders', 'coupon_discount', 'REAL DEFAULT 0');
+  await addColumnIfNotExists('coupons', 'product_id', 'INTEGER');
+  await addColumnIfNotExists('coupons', 'category', 'TEXT');
 
   const promotionCountResult = await db.execute('SELECT COUNT(*) as count FROM promotions');
   if (promotionCountResult.rows[0].count === 0) {
@@ -660,7 +662,9 @@ async function initDatabase() {
         min_amount: 200,
         total_count: 100,
         description: '新用户专享，满200元可用',
-        per_user_limit: 1
+        per_user_limit: 1,
+        product_id: null,
+        category: null
       },
       {
         name: '全场9折优惠券',
@@ -669,7 +673,9 @@ async function initDatabase() {
         min_amount: 100,
         total_count: 500,
         description: '全场通用9折，满100元可用',
-        per_user_limit: 2
+        per_user_limit: 2,
+        product_id: null,
+        category: null
       },
       {
         name: '满500减100',
@@ -678,7 +684,9 @@ async function initDatabase() {
         min_amount: 500,
         total_count: 200,
         description: '满500元减100元',
-        per_user_limit: 1
+        per_user_limit: 1,
+        product_id: null,
+        category: null
       },
       {
         name: '食品满100减20',
@@ -687,15 +695,17 @@ async function initDatabase() {
         min_amount: 100,
         total_count: 300,
         description: '食品类满100元减20元',
-        per_user_limit: 1
+        per_user_limit: 1,
+        product_id: null,
+        category: '食品'
       }
     ];
 
     for (const coupon of sampleCoupons) {
       await runQuery(
-        `INSERT INTO coupons (name, type, value, min_amount, total_count, used_count, start_time, end_time, status, description, per_user_limit)
-         VALUES (?, ?, ?, ?, ?, 0, ?, ?, 1, ?, ?)`,
-        [coupon.name, coupon.type, coupon.value, coupon.min_amount, coupon.total_count, now.toISOString(), future.toISOString(), coupon.description, coupon.per_user_limit]
+        `INSERT INTO coupons (name, type, value, min_amount, total_count, used_count, start_time, end_time, status, description, per_user_limit, product_id, category)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, 1, ?, ?, ?, ?)`,
+        [coupon.name, coupon.type, coupon.value, coupon.min_amount, coupon.total_count, now.toISOString(), future.toISOString(), coupon.description, coupon.per_user_limit, coupon.product_id, coupon.category]
       );
     }
 

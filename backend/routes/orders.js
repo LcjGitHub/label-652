@@ -6,7 +6,8 @@ import {
   getProductActivePromotion,
   calculatePromotionPrice,
   calculateCouponDiscount,
-  calculateCartPromotions
+  calculateCartPromotions,
+  getPromotionDisplayText
 } from '../database.js';
 import { authMiddleware } from '../middleware/auth.js';
 
@@ -324,6 +325,14 @@ router.post('/calculate', authMiddleware, async (ctx) => {
   for (const item of cartItems) {
     const hasSku = item.sku_id != null;
     item._effectivePrice = hasSku ? item.sku_price : item.product_price;
+    const promotion = await getProductActivePromotion(item.product_id);
+    item._promotion = promotion ? {
+      id: promotion.id,
+      name: promotion.name,
+      type: promotion.type,
+      display_text: getPromotionDisplayText(promotion),
+      price: calculatePromotionPrice(promotion, item._effectivePrice, 1)
+    } : null;
   }
 
   const originalTotal = cartItems.reduce((sum, item) => sum + item._effectivePrice * item.quantity, 0);
@@ -375,7 +384,25 @@ router.post('/calculate', authMiddleware, async (ctx) => {
       coupon_discount: couponDiscount,
       total_discount: totalDiscount,
       final_total: finalTotal,
-      item_details: promotionResult.itemPromotions,
+      item_details: cartItems.map(item => {
+        const promoDetail = promotionResult.itemPromotions.find(
+          p => p.product_id === item.product_id && p.sku_id === (item.sku_id || null)
+        );
+        return {
+          cart_id: item.id,
+          product_id: item.product_id,
+          sku_id: item.sku_id || null,
+          name: item.name,
+          image: item.image,
+          sku_name: item.sku_name || null,
+          price: item._effectivePrice,
+          quantity: item.quantity,
+          subtotal: item._effectivePrice * item.quantity,
+          promotion: item._promotion,
+          promotion_discount: promoDetail ? promoDetail.promotionDiscount : 0,
+          final_subtotal: promoDetail ? promoDetail.finalSubtotal : item._effectivePrice * item.quantity
+        };
+      }),
       selected_coupon: couponInfo
     }
   };
@@ -399,7 +426,7 @@ router.get('/my/available-coupons', authMiddleware, async (ctx) => {
 
   for (const uc of userCoupons) {
     if (uc.end_time < now) {
-      invalidCoupons.push({ ...uc, invalid_reason: '已过期' });
+      invalidCoupons.push({ ...uc, reason: '已过期', available: false });
       continue;
     }
 
@@ -423,7 +450,7 @@ router.get('/my/available-coupons', authMiddleware, async (ctx) => {
       invalidCoupons.push({
         ...uc,
         display_text: displayText,
-        invalid_reason: validation.reason || '不可用',
+        reason: validation.reason || '不可用',
         available: false
       });
     }

@@ -11,7 +11,8 @@ import {
   getProductPriceRange,
   getProductStock,
   getProductActivePromotion,
-  getPromotionDisplayText
+  getPromotionDisplayText,
+  calculatePromotionPrice
 } from '../database.js';
 import { authMiddleware, optionalAuthMiddleware } from '../middleware/auth.js';
 import { getProductThreshold, getGlobalConfig } from './stockAlerts.js';
@@ -83,10 +84,12 @@ router.get('/', optionalAuthMiddleware, async (ctx) => {
 
   let orderByClause = 'p.created_at DESC';
   let joinClause = '';
+  let extraSelectFields = '';
 
   if (sortBy === 'favorited_at' && userId) {
     joinClause = 'LEFT JOIN favorites f ON f.product_id = p.id AND f.user_id = ?';
     orderByClause = 'f.created_at DESC, p.created_at DESC';
+    extraSelectFields = ', f.created_at as favorited_at';
     params.unshift(userId);
   }
 
@@ -94,8 +97,8 @@ router.get('/', optionalAuthMiddleware, async (ctx) => {
     SELECT 
       p.*,
       COALESCE(sac.threshold, ?) as alert_threshold,
-      COALESCE(sac.enabled, ?) as alert_enabled,
-      f.created_at as favorited_at
+      COALESCE(sac.enabled, ?) as alert_enabled
+      ${extraSelectFields}
     FROM products p
     ${joinClause}
     LEFT JOIN stock_alert_config sac ON p.id = sac.product_id
@@ -116,7 +119,8 @@ router.get('/', optionalAuthMiddleware, async (ctx) => {
       id: promotion.id,
       name: promotion.name,
       type: promotion.type,
-      display_text: getPromotionDisplayText(promotion)
+      display_text: getPromotionDisplayText(promotion),
+      price: calculatePromotionPrice(promotion, p.price, 1)
     } : null;
 
     productsWithAlert.push({
@@ -458,7 +462,8 @@ router.get('/:id', async (ctx) => {
     type: promotion.type,
     rules: promotion.rules,
     description: promotion.description,
-    display_text: getPromotionDisplayText(promotion)
+    display_text: getPromotionDisplayText(promotion),
+    price: calculatePromotionPrice(promotion, product.price, 1)
   } : null;
 
   ctx.body = {

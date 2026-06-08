@@ -46,9 +46,19 @@ router.get('/product/:productId', optionalAuthMiddleware, async (ctx) => {
   const { productId } = ctx.params;
   const userId = ctx.state.user ? ctx.state.user.id : null;
 
-  const availableCoupons = await getAvailableCoupons();
-  const productCoupons = availableCoupons.filter(coupon => {
-    return true;
+  const product = await getQuery('SELECT id, category FROM products WHERE id = ?', [productId]);
+  if (!product) {
+    ctx.status = 404;
+    ctx.body = { success: false, message: '商品不存在' };
+    return;
+  }
+
+  const allAvailableCoupons = await getAvailableCoupons();
+  const productCoupons = allAvailableCoupons.filter(coupon => {
+    if (coupon.product_id && String(coupon.product_id) === String(productId)) return true;
+    if (coupon.category && coupon.category === product.category) return true;
+    if (!coupon.product_id && !coupon.category) return true;
+    return false;
   });
 
   const receivedIds = new Set();

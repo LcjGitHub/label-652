@@ -74,20 +74,41 @@
 
           <div class="product-price-large">
             <span class="price-label">价格</span>
-            <span class="price-value">
-              <template v-if="!product.has_multi_spec">
+            <template v-if="product.promotion && product.promotion.price && product.promotion.price < product.price">
+              <span class="price-value">
+                <template v-if="!product.has_multi_spec">
+                  ¥{{ product.promotion.price.toFixed(2) }}
+                </template>
+                <template v-else-if="currentSku">
+                  ¥{{ currentSku.price.toFixed(2) }}
+                </template>
+                <template v-else-if="product.min_price !== undefined && product.max_price !== undefined && product.min_price !== product.max_price">
+                  ¥{{ product.min_price.toFixed(2) }} - ¥{{ product.max_price.toFixed(2) }}
+                </template>
+                <template v-else>
+                  ¥{{ product.promotion.price.toFixed(2) }}
+                </template>
+              </span>
+              <span class="original-price-value">
                 ¥{{ product.price.toFixed(2) }}
-              </template>
-              <template v-else-if="currentSku">
-                ¥{{ currentSku.price.toFixed(2) }}
-              </template>
-              <template v-else-if="product.min_price !== undefined && product.max_price !== undefined && product.min_price !== product.max_price">
-                ¥{{ product.min_price.toFixed(2) }} - ¥{{ product.max_price.toFixed(2) }}
-              </template>
-              <template v-else>
-                ¥{{ product.price.toFixed(2) }}
-              </template>
-            </span>
+              </span>
+            </template>
+            <template v-else>
+              <span class="price-value">
+                <template v-if="!product.has_multi_spec">
+                  ¥{{ product.price.toFixed(2) }}
+                </template>
+                <template v-else-if="currentSku">
+                  ¥{{ currentSku.price.toFixed(2) }}
+                </template>
+                <template v-else-if="product.min_price !== undefined && product.max_price !== undefined && product.min_price !== product.max_price">
+                  ¥{{ product.min_price.toFixed(2) }} - ¥{{ product.max_price.toFixed(2) }}
+                </template>
+                <template v-else>
+                  ¥{{ product.price.toFixed(2) }}
+                </template>
+              </span>
+            </template>
           </div>
           <div class="product-stock-large">
             <span class="stock-label">库存:</span>
@@ -211,8 +232,8 @@
                 </template>
               </div>
               <div class="coupon-condition">
-                <template v-if="coupon.min_order_amount > 0">
-                  满 ¥{{ coupon.min_order_amount }} 可用
+                <template v-if="coupon.min_amount > 0">
+                  满 ¥{{ coupon.min_amount }} 可用
                 </template>
                 <template v-else>
                   无门槛
@@ -221,7 +242,7 @@
             </div>
             <div class="coupon-right">
               <div class="coupon-name">{{ coupon.name }}</div>
-              <div class="coupon-expire">{{ coupon.displayText }}</div>
+              <div class="coupon-expire">{{ coupon.display_text }}</div>
               <button
                 class="coupon-receive-btn"
                 :disabled="coupon.received || couponsLoading"
@@ -1119,6 +1140,13 @@ watch(user, (newUser) => {
   font-size: 36px;
   font-weight: 700;
   color: #e74c3c;
+}
+
+.original-price-value {
+  font-size: 20px;
+  color: #bbb;
+  text-decoration: line-through;
+  font-weight: 500;
 }
 
 .product-stock-large {
