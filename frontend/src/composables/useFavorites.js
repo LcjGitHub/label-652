@@ -29,11 +29,7 @@ export function useFavorites() {
   const favoriteCount = computed(() => favoriteIds.value.size);
 
   const requireAuth = () => {
-    if (!localStorage.getItem('token')) {
-      router.push('/login');
-      return false;
-    }
-    return true;
+    return !!localStorage.getItem('token');
   };
 
   const toggleFavorite = async (productId) => {

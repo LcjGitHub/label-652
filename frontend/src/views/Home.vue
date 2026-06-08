@@ -1146,13 +1146,21 @@ const fetchProducts = async () => {
 };
 
 const handleSortChange = () => {
+  if (sortBy.value === 'favorited_at' && !isAuthenticated.value) {
+    showToast('请先登录后再按收藏时间排序', 'error');
+    sortBy.value = 'created_at';
+    return;
+  }
   pagination.page = 1;
   fetchProducts();
 };
 
 const handleToggleFavorite = async (product) => {
   if (!requireAuth()) {
-    showToast('请先登录', 'error');
+    showToast('请先登录后再收藏商品', 'error');
+    setTimeout(() => {
+      router.push('/login');
+    }, 800);
     return;
   }
   favoriteLoadingId.value = product.id;

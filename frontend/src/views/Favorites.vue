@@ -57,11 +57,44 @@
           <h3 class="favorite-name" @click="goToDetail(item.id)">{{ item.name }}</h3>
           <p class="favorite-desc">{{ item.description }}</p>
           <div class="favorite-price-row">
-            <span class="favorite-price">¥{{ item.price.toFixed(2) }}</span>
+            <template v-if="item.has_multi_spec && getCurrentCardSku(item)">
+              <span class="favorite-price">¥{{ getCurrentCardSku(item).price.toFixed(2) }}</span>
+            </template>
+            <template v-else-if="item.has_multi_spec && item.min_price !== undefined && item.max_price !== undefined && item.min_price !== item.max_price">
+              <span class="favorite-price">¥{{ item.min_price.toFixed(2) }} - ¥{{ item.max_price.toFixed(2) }}</span>
+            </template>
+            <template v-else>
+              <span class="favorite-price">¥{{ item.price.toFixed(2) }}</span>
+            </template>
             <span class="favorite-date" v-if="item.favorited_at">
               收藏于 {{ formatDate(item.favorited_at) }}
             </span>
           </div>
+
+          <div v-if="item.has_multi_spec && item.specs && item.specs.length > 0" class="card-spec-selector" @click.stop>
+            <div v-for="spec in item.specs" :key="spec.id" class="card-spec-group">
+              <span class="card-spec-label">{{ spec.name }}:</span>
+              <div class="card-spec-value-options">
+                <button
+                  v-for="val in spec.values"
+                  :key="val.id"
+                  type="button"
+                  class="card-spec-value-btn"
+                  :class="{ active: getCardSelectedSpecs(item.id)[spec.name] === val.value }"
+                  @click="selectCardSpecValue(item.id, spec.name, val.value)"
+                >
+                  {{ val.value }}
+                </button>
+              </div>
+            </div>
+            <div v-if="getCurrentCardSku(item)" class="card-selected-sku-info">
+              <span class="card-sku-text">已选: {{ getCurrentCardSku(item).spec_text }}</span>
+            </div>
+            <div v-else class="card-selected-sku-info card-select-prompt">
+              <span class="card-sku-text">请选择规格</span>
+            </div>
+          </div>
+
           <div class="favorite-actions">
             <button
               class="btn btn-sm btn-danger favorite-remove-btn"
@@ -75,10 +108,12 @@
             </button>
             <button
               class="btn btn-sm btn-primary"
-              :disabled="item.stock === 0"
-              @click.stop="handleAddToCart(item)"
+              :disabled="getCardDisplayStock(item) === 0 || addingCartId === item.id"
+              @click.stop="quickAddToCart(item)"
             >
-              加入购物车
+              <span v-if="addingCartId === item.id">添加中...</span>
+              <span v-else-if="item.has_multi_spec && !getCurrentCardSku(item)">选规格</span>
+              <span v-else>加入购物车</span>
             </button>
           </div>
         </div>
@@ -149,7 +184,59 @@ const {
 const { handleAddToCart: cartAddToCart } = useCart();
 
 const selectedIds = ref(new Set());
+const addingCartId = ref(null);
 const defaultPlaceholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PHRleHQgeD0iNTAlIiB5PSI1NSUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNiIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPuWbvueJh+WKoOWvhueggTwvdGV4dD48L3N2Zz4=';
+
+const cardSelectedSpecs = reactive({});
+
+const getCardSelectedSpecs = (productId) => {
+  if (!cardSelectedSpecs[productId]) {
+    cardSelectedSpecs[productId] = {};
+  }
+  return cardSelectedSpecs[productId];
+};
+
+const selectCardSpecValue = (productId, specName, value) => {
+  const specs = getCardSelectedSpecs(productId);
+  specs[specName] = value;
+};
+
+const getCurrentCardSku = (product) => {
+  if (!product || !product.has_multi_spec || !product.skus) return null;
+  const selected = getCardSelectedSpecs(product.id);
+  const selectedKeys = Object.keys(selected);
+  if (selectedKeys.length === 0) return null;
+
+  const specNames = product.specs ? product.specs.map(s => s.name) : [];
+  const allSelected = specNames.every(name => selected[name]);
+  if (!allSelected) return null;
+
+  return product.skus.find(sku => {
+    if (!sku.specs) {
+      if (!sku.spec_text) return false;
+      const parsed = {};
+      for (const part of sku.spec_text.split(/[;\/]/)) {
+        const [k, v] = part.split(':');
+        if (k && v) parsed[k.trim()] = v.trim();
+      }
+      sku.specs = parsed;
+    }
+    for (const specName of specNames) {
+      if (sku.specs[specName] !== selected[specName]) return false;
+    }
+    return true;
+  }) || null;
+};
+
+const getCardDisplayStock = (product) => {
+  if (!product) return 0;
+  if (product.has_multi_spec) {
+    const sku = getCurrentCardSku(product);
+    if (sku) return sku.stock;
+    return product.total_stock != null ? product.total_stock : product.stock;
+  }
+  return product.stock;
+};
 
 const toast = reactive({
   show: false,
@@ -258,9 +345,32 @@ const handleBatchRemove = async () => {
   }
 };
 
-const handleAddToCart = async (product) => {
-  const result = await cartAddToCart(product.id, 1);
-  showToast(result.message, result.success ? 'success' : 'error');
+const quickAddToCart = async (product) => {
+  if (product.has_multi_spec) {
+    const sku = getCurrentCardSku(product);
+    if (!sku) {
+      showToast('请先选择商品规格，或前往详情页选择', 'error');
+      setTimeout(() => {
+        router.push(`/product/${product.id}`);
+      }, 1000);
+      return;
+    }
+    addingCartId.value = product.id;
+    try {
+      const result = await cartAddToCart(product.id, 1, sku.id);
+      showToast(result.message, result.success ? 'success' : 'error');
+    } finally {
+      addingCartId.value = null;
+    }
+  } else {
+    addingCartId.value = product.id;
+    try {
+      const result = await cartAddToCart(product.id, 1);
+      showToast(result.message, result.success ? 'success' : 'error');
+    } finally {
+      addingCartId.value = null;
+    }
+  }
 };
 
 const goToDetail = (id) => {
@@ -476,6 +586,78 @@ onMounted(() => {
 
 .favorite-remove-btn {
   flex: 1;
+}
+
+.card-spec-selector {
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid #eee;
+}
+
+.card-spec-group {
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.card-spec-group:last-of-type {
+  margin-bottom: 8px;
+}
+
+.card-spec-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #555;
+  min-width: 40px;
+}
+
+.card-spec-value-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+}
+
+.card-spec-value-btn {
+  padding: 4px 10px;
+  border: 1.5px solid #ddd;
+  background: white;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 12px;
+  color: #555;
+}
+
+.card-spec-value-btn:hover {
+  border-color: #667eea;
+  color: #667eea;
+}
+
+.card-spec-value-btn.active {
+  border-color: #667eea;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.card-selected-sku-info {
+  padding-top: 8px;
+  margin-top: 4px;
+  border-top: 1px dashed #e5e7eb;
+}
+
+.card-selected-sku-info .card-sku-text {
+  font-size: 12px;
+  color: #27ae60;
+  font-weight: 500;
+}
+
+.card-selected-sku-info.card-select-prompt .card-sku-text {
+  color: #f39c12;
 }
 
 .btn {

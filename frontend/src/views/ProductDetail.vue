@@ -532,7 +532,10 @@ const recordBrowseHistory = async () => {
 
 const handleToggleFavorite = async () => {
   if (!requireAuth()) {
-    showToast('请先登录', 'error');
+    showToast('请先登录后再收藏商品', 'error');
+    setTimeout(() => {
+      router.push('/login');
+    }, 800);
     return;
   }
   favoriteLoading.value = true;
