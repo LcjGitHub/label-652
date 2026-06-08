@@ -60,104 +60,7 @@ router.get('/categories', async (ctx) => {
   };
 });
 
-router.get('/:id', async (ctx) => {
-  const { id } = ctx.params;
-  const product = await getQuery('SELECT * FROM products WHERE id = ?', [id]);
-
-  if (!product) {
-    ctx.status = 404;
-    ctx.body = { success: false, message: '商品不存在' };
-    return;
-  }
-
-  ctx.body = { success: true, data: product };
-});
-
-router.post('/', async (ctx) => {
-  const { name, description, price, category, stock = 0, image } = ctx.request.body;
-
-  if (!name || !price || !category) {
-    ctx.status = 400;
-    ctx.body = { success: false, message: '商品名称、价格和分类为必填项' };
-    return;
-  }
-
-  if (!categories.includes(category)) {
-    ctx.status = 400;
-    ctx.body = { success: false, message: '无效的商品分类' };
-    return;
-  }
-
-  const result = await runQuery(`
-    INSERT INTO products (name, description, price, category, stock, image)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `, [name, description, price, category, stock, image]);
-
-  ctx.status = 201;
-  ctx.body = {
-    success: true,
-    data: { id: result.lastID, name, description, price, category, stock, image }
-  };
-});
-
-router.put('/:id', authMiddleware, async (ctx) => {
-  const { id } = ctx.params;
-  const { name, description, price, category, stock, image } = ctx.request.body;
-
-  const existing = await getQuery('SELECT * FROM products WHERE id = ?', [id]);
-
-  if (!existing) {
-    ctx.status = 404;
-    ctx.body = { success: false, message: '商品不存在' };
-    return;
-  }
-
-  if (category && !categories.includes(category)) {
-    ctx.status = 400;
-    ctx.body = { success: false, message: '无效的商品分类' };
-    return;
-  }
-
-  const updateFields = [];
-  const updateValues = [];
-
-  if (name !== undefined) { updateFields.push('name = ?'); updateValues.push(name); }
-  if (description !== undefined) { updateFields.push('description = ?'); updateValues.push(description); }
-  if (price !== undefined) { updateFields.push('price = ?'); updateValues.push(price); }
-  if (category !== undefined) { updateFields.push('category = ?'); updateValues.push(category); }
-  if (stock !== undefined) { updateFields.push('stock = ?'); updateValues.push(stock); }
-  if (image !== undefined) { updateFields.push('image = ?'); updateValues.push(image); }
-
-  updateFields.push('updated_at = CURRENT_TIMESTAMP');
-  updateValues.push(id);
-
-  await runQuery(`
-    UPDATE products SET ${updateFields.join(', ')}
-    WHERE id = ?
-  `, updateValues);
-
-  const updatedProduct = await getQuery('SELECT * FROM products WHERE id = ?', [id]);
-
-  ctx.body = { success: true, data: updatedProduct };
-});
-
-router.delete('/:id', authMiddleware, async (ctx) => {
-  const { id } = ctx.params;
-
-  const existing = await getQuery('SELECT * FROM products WHERE id = ?', [id]);
-
-  if (!existing) {
-    ctx.status = 404;
-    ctx.body = { success: false, message: '商品不存在' };
-    return;
-  }
-
-  await runQuery('DELETE FROM products WHERE id = ?', [id]);
-
-  ctx.body = { success: true, message: '删除成功' };
-});
-
-router.get('/export', async (ctx) => {
+router.get('/export', authMiddleware, async (ctx) => {
   const { category } = ctx.query;
 
   let whereClause = '';
@@ -212,7 +115,7 @@ router.get('/export', async (ctx) => {
   ctx.body = await workbook.xlsx.writeBuffer();
 });
 
-router.get('/template', async (ctx) => {
+router.get('/template', authMiddleware, async (ctx) => {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet('商品导入模板');
 
@@ -261,7 +164,7 @@ router.get('/template', async (ctx) => {
   ctx.body = await workbook.xlsx.writeBuffer();
 });
 
-router.post('/import', upload.single('file'), async (ctx) => {
+router.post('/import', authMiddleware, upload.single('file'), async (ctx) => {
   if (!ctx.file) {
     ctx.status = 400;
     ctx.body = { success: false, message: '请上传 Excel 文件' };
@@ -287,18 +190,34 @@ router.post('/import', upload.single('file'), async (ctx) => {
   const rows = [];
   worksheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return;
+
     const data = {};
     EXCEL_HEADERS.forEach((h, index) => {
-      data[h.key] = row.getCell(index + 1).value;
+      const cellValue = row.getCell(index + 1).value;
+      data[h.key] = cellValue && typeof cellValue === 'object' && cellValue.text !== undefined
+        ? cellValue.text
+        : cellValue;
     });
-    if (Object.values(data).some(v => v !== null && v !== undefined && v !== '')) {
-      rows.push({ rowNumber, data });
-    }
+
+    const nameStr = data.name === null || data.name === undefined ? '' : String(data.name).trim();
+
+    if (!nameStr) return;
+
+    if (nameStr.includes('示例')) return;
+
+    if (nameStr.includes('说明')) return;
+
+    const hasAnyValue = Object.values(data).some(v =>
+      v !== null && v !== undefined && String(v).trim() !== ''
+    );
+    if (!hasAnyValue) return;
+
+    rows.push({ rowNumber, data });
   });
 
   if (rows.length === 0) {
     ctx.status = 400;
-    ctx.body = { success: false, message: 'Excel 文件中没有有效数据' };
+    ctx.body = { success: false, message: 'Excel 文件中没有有效商品数据，请填写后再上传' };
     return;
   }
 
@@ -402,6 +321,103 @@ router.post('/import', upload.single('file'), async (ctx) => {
       ? `导入完成：成功 ${successCount} 条，失败 ${failCount} 条`
       : `导入失败：${failCount} 条数据存在错误`
   };
+});
+
+router.get('/:id', async (ctx) => {
+  const { id } = ctx.params;
+  const product = await getQuery('SELECT * FROM products WHERE id = ?', [id]);
+
+  if (!product) {
+    ctx.status = 404;
+    ctx.body = { success: false, message: '商品不存在' };
+    return;
+  }
+
+  ctx.body = { success: true, data: product };
+});
+
+router.post('/', authMiddleware, async (ctx) => {
+  const { name, description, price, category, stock = 0, image } = ctx.request.body;
+
+  if (!name || !price || !category) {
+    ctx.status = 400;
+    ctx.body = { success: false, message: '商品名称、价格和分类为必填项' };
+    return;
+  }
+
+  if (!categories.includes(category)) {
+    ctx.status = 400;
+    ctx.body = { success: false, message: '无效的商品分类' };
+    return;
+  }
+
+  const result = await runQuery(`
+    INSERT INTO products (name, description, price, category, stock, image)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `, [name, description, price, category, stock, image]);
+
+  ctx.status = 201;
+  ctx.body = {
+    success: true,
+    data: { id: result.lastID, name, description, price, category, stock, image }
+  };
+});
+
+router.put('/:id', authMiddleware, async (ctx) => {
+  const { id } = ctx.params;
+  const { name, description, price, category, stock, image } = ctx.request.body;
+
+  const existing = await getQuery('SELECT * FROM products WHERE id = ?', [id]);
+
+  if (!existing) {
+    ctx.status = 404;
+    ctx.body = { success: false, message: '商品不存在' };
+    return;
+  }
+
+  if (category && !categories.includes(category)) {
+    ctx.status = 400;
+    ctx.body = { success: false, message: '无效的商品分类' };
+    return;
+  }
+
+  const updateFields = [];
+  const updateValues = [];
+
+  if (name !== undefined) { updateFields.push('name = ?'); updateValues.push(name); }
+  if (description !== undefined) { updateFields.push('description = ?'); updateValues.push(description); }
+  if (price !== undefined) { updateFields.push('price = ?'); updateValues.push(price); }
+  if (category !== undefined) { updateFields.push('category = ?'); updateValues.push(category); }
+  if (stock !== undefined) { updateFields.push('stock = ?'); updateValues.push(stock); }
+  if (image !== undefined) { updateFields.push('image = ?'); updateValues.push(image); }
+
+  updateFields.push('updated_at = CURRENT_TIMESTAMP');
+  updateValues.push(id);
+
+  await runQuery(`
+    UPDATE products SET ${updateFields.join(', ')}
+    WHERE id = ?
+  `, updateValues);
+
+  const updatedProduct = await getQuery('SELECT * FROM products WHERE id = ?', [id]);
+
+  ctx.body = { success: true, data: updatedProduct };
+});
+
+router.delete('/:id', authMiddleware, async (ctx) => {
+  const { id } = ctx.params;
+
+  const existing = await getQuery('SELECT * FROM products WHERE id = ?', [id]);
+
+  if (!existing) {
+    ctx.status = 404;
+    ctx.body = { success: false, message: '商品不存在' };
+    return;
+  }
+
+  await runQuery('DELETE FROM products WHERE id = ?', [id]);
+
+  ctx.body = { success: true, message: '删除成功' };
 });
 
 module.exports = router;

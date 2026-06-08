@@ -7,7 +7,7 @@
         </router-link>
         <SearchBar v-model="searchQuery" @search="handleSearch" />
         <div class="header-actions">
-          <template v-if="showAddButton">
+          <template v-if="showAddButton && isAuthenticated">
             <button class="btn btn-outline" @click="handleExport">
               导出
             </button>
