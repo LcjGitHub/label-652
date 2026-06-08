@@ -3,6 +3,7 @@ const multer = require('@koa/multer');
 const ExcelJS = require('exceljs');
 const { categories, runQuery, getQuery, allQuery } = require('../database');
 const { authMiddleware } = require('../middleware/auth');
+const { getProductThreshold, getGlobalConfig } = require('./stockAlerts');
 
 const router = new Router({ prefix: '/api/products' });
 const upload = multer({ storage: multer.memoryStorage() });
@@ -33,16 +34,44 @@ router.get('/', async (ctx) => {
   const countResult = await getQuery(`SELECT COUNT(*) as total FROM products ${whereClause}`, params);
   const total = countResult.total;
 
+  const globalConfig = await getGlobalConfig();
+  const globalEnabled = globalConfig.enabled === 1;
+
   const products = await allQuery(`
-    SELECT * FROM products ${whereClause}
-    ORDER BY created_at DESC
+    SELECT 
+      p.*,
+      COALESCE(sac.threshold, ?) as alert_threshold,
+      COALESCE(sac.enabled, ?) as alert_enabled
+    FROM products p
+    LEFT JOIN stock_alert_config sac ON p.id = sac.product_id
+    ${whereClause}
+    ORDER BY p.created_at DESC
     LIMIT ? OFFSET ?
-  `, [...params, limitNum, offset]);
+  `, [globalConfig.default_threshold, globalConfig.enabled, ...params, limitNum, offset]);
+
+  const productsWithAlert = products.map(p => {
+    const alertEnabled = p.alert_enabled === 1 && globalEnabled;
+    const isAlert = alertEnabled && p.stock < p.alert_threshold;
+    return {
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      price: p.price,
+      category: p.category,
+      stock: p.stock,
+      image: p.image,
+      created_at: p.created_at,
+      updated_at: p.updated_at,
+      alert_threshold: p.alert_threshold,
+      alert_enabled: alertEnabled,
+      is_alert: isAlert
+    };
+  });
 
   ctx.body = {
     success: true,
     data: {
-      products,
+      products: productsWithAlert,
       pagination: {
         page: pageNum,
         limit: limitNum,
@@ -325,7 +354,15 @@ router.post('/import', authMiddleware, upload.single('file'), async (ctx) => {
 
 router.get('/:id', async (ctx) => {
   const { id } = ctx.params;
-  const product = await getQuery('SELECT * FROM products WHERE id = ?', [id]);
+  const product = await getQuery(`
+    SELECT 
+      p.*,
+      COALESCE(sac.threshold, ?) as alert_threshold,
+      COALESCE(sac.enabled, ?) as alert_enabled
+    FROM products p
+    LEFT JOIN stock_alert_config sac ON p.id = sac.product_id
+    WHERE p.id = ?
+  `, [20, 1, id]);
 
   if (!product) {
     ctx.status = 404;
@@ -333,7 +370,27 @@ router.get('/:id', async (ctx) => {
     return;
   }
 
-  ctx.body = { success: true, data: product };
+  const globalConfig = await getGlobalConfig();
+  const alertEnabled = product.alert_enabled === 1 && globalConfig.enabled === 1;
+  const isAlert = alertEnabled && product.stock < product.alert_threshold;
+
+  ctx.body = {
+    success: true,
+    data: {
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      category: product.category,
+      stock: product.stock,
+      image: product.image,
+      created_at: product.created_at,
+      updated_at: product.updated_at,
+      alert_threshold: product.alert_threshold,
+      alert_enabled: alertEnabled,
+      is_alert: isAlert
+    }
+  };
 });
 
 router.post('/', authMiddleware, async (ctx) => {

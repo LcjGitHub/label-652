@@ -18,6 +18,18 @@
               + 添加商品
             </button>
           </template>
+          <button 
+            class="alert-icon-btn" 
+            @click="toggleAlertDrawer" 
+            :title="'库存预警 (' + alertCount + ')'"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+            <span v-if="alertCount > 0" class="alert-badge">{{ alertCount > 99 ? '99+' : alertCount }}</span>
+          </button>
           <button class="cart-icon-btn" @click="toggleCartDrawer" :title="'购物车 (' + cartCount + ')'">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="9" cy="21" r="1"></circle>
@@ -51,6 +63,7 @@
     </main>
 
     <CartDrawer :show="isCartDrawerOpen" @close="closeCartDrawer" />
+    <AlertDrawer :show="isAlertDrawerOpen" @close="closeAlertDrawer" />
   </div>
 </template>
 
@@ -59,13 +72,16 @@ import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuth } from './composables/useAuth.js';
 import { useCart } from './composables/useCart.js';
+import { useStockAlert } from './composables/useStockAlert.js';
 import CartDrawer from './components/CartDrawer.vue';
+import AlertDrawer from './components/AlertDrawer.vue';
 import SearchBar from './components/SearchBar.vue';
 
 const route = useRoute();
 const router = useRouter();
 const { user, isAuthenticated, isLoading: authLoading, handleLogout, loadUser } = useAuth();
 const { cartCount, isCartDrawerOpen, loadCart, loadCartFromServer, toggleCartDrawer, closeCartDrawer } = useCart();
+const { alertCount, isAlertDrawerOpen, fetchAlertCount, toggleAlertDrawer, closeAlertDrawer } = useStockAlert();
 
 const searchQuery = ref('');
 
@@ -99,6 +115,8 @@ const handleOpenImportModal = () => {
   }
 };
 
+let alertRefreshTimer = null;
+
 onMounted(async () => {
   if (localStorage.getItem('token') && !isAuthenticated.value) {
     await loadUser();
@@ -111,6 +129,10 @@ onMounted(async () => {
   } else {
     await loadCart();
   }
+  await fetchAlertCount();
+  alertRefreshTimer = setInterval(() => {
+    fetchAlertCount();
+  }, 30000);
 });
 
 watch(isAuthenticated, async (newVal, oldVal) => {
@@ -189,6 +211,45 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
+}
+
+.alert-icon-btn {
+  position: relative;
+  background: rgba(231, 76, 60, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  padding: 0;
+}
+
+.alert-icon-btn:hover {
+  background: rgba(231, 76, 60, 0.5);
+  transform: translateY(-1px);
+}
+
+.alert-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: #e74c3c;
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .cart-icon-btn {

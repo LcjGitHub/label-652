@@ -6,6 +6,8 @@ const user = ref(null);
 const isAuthenticated = computed(() => !!user.value);
 const isLoading = ref(false);
 
+export { user, isAuthenticated };
+
 export function useAuth() {
   const router = useRouter();
 

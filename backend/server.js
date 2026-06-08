@@ -10,6 +10,7 @@ const ordersRouter = require('./routes/orders');
 const healthRouter = require('./routes/health');
 const searchRouter = require('./routes/search');
 const recommendationsRouter = require('./routes/recommendations');
+const { router: stockAlertsRouter } = require('./routes/stockAlerts');
 const { dbReady } = require('./database');
 const config = require('../config');
 
@@ -62,6 +63,9 @@ app.use(searchRouter.allowedMethods());
 app.use(recommendationsRouter.routes());
 app.use(recommendationsRouter.allowedMethods());
 
+app.use(stockAlertsRouter.routes());
+app.use(stockAlertsRouter.allowedMethods());
+
 async function checkPortAvailable(port, host) {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -97,6 +101,7 @@ async function startServer() {
       console.log(`  订单接口: http://${HOST}:${PORT}/api/orders`);
       console.log(`  搜索接口: http://${HOST}:${PORT}/api/search`);
       console.log(`  推荐接口: http://${HOST}:${PORT}/api/recommendations`);
+      console.log(`  库存预警接口: http://${HOST}:${PORT}/api/stock-alerts`);
       console.log('========================================');
     });
   } catch (err) {

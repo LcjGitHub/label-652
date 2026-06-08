@@ -7,7 +7,7 @@ import {
   clearCart,
   mergeCart
 } from '../api/cart.js';
-import { useAuth } from './useAuth.js';
+import { useAuth, isAuthenticated as globalIsAuthenticated } from './useAuth.js';
 
 const LOCAL_CART_KEY = 'local_cart';
 const MERGE_FLAG_KEY = 'cart_merge_done';
@@ -130,6 +130,25 @@ const loadCartFromServer = async () => {
     }
   } catch (err) {
     console.error('加载购物车失败:', err);
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+const handleMergeLocalCart = async () => {
+  const localItems = getLocalCart();
+  if (localItems.length === 0 || !globalIsAuthenticated.value) return;
+
+  isLoading.value = true;
+  try {
+    const res = await mergeCart(localItems);
+    if (res.data.success) {
+      clearLocalCart();
+      updateCartState(res.data.data);
+      return { success: true, message: res.data.message };
+    }
+  } catch (err) {
+    console.error('合并购物车失败:', err);
   } finally {
     isLoading.value = false;
   }
@@ -318,25 +337,6 @@ export function useCart() {
       };
     } finally {
       isUpdating.value = false;
-    }
-  };
-
-  const handleMergeLocalCart = async () => {
-    const localItems = getLocalCart();
-    if (localItems.length === 0 || !isAuthenticated.value) return;
-
-    isLoading.value = true;
-    try {
-      const res = await mergeCart(localItems);
-      if (res.data.success) {
-        clearLocalCart();
-        updateCartState(res.data.data);
-        return { success: true, message: res.data.message };
-      }
-    } catch (err) {
-      console.error('合并购物车失败:', err);
-    } finally {
-      isLoading.value = false;
     }
   };
 

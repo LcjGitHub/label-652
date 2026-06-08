@@ -133,6 +133,62 @@ async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_browse_history_product ON browse_history(product_id);
   `);
 
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS stock_alert_config (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER UNIQUE,
+      threshold INTEGER NOT NULL DEFAULT 10,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_stock_alert_config_product ON stock_alert_config(product_id);
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS stock_alert_global_config (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      default_threshold INTEGER NOT NULL DEFAULT 10,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      notify_email TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS restock_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_no TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'pending',
+      total_items INTEGER NOT NULL DEFAULT 0,
+      remark TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS restock_order_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      restock_order_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      product_name TEXT NOT NULL,
+      current_stock INTEGER NOT NULL DEFAULT 0,
+      threshold INTEGER NOT NULL DEFAULT 0,
+      suggested_quantity INTEGER NOT NULL DEFAULT 0,
+      unit_price REAL NOT NULL DEFAULT 0,
+      subtotal REAL NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (restock_order_id) REFERENCES restock_orders(id) ON DELETE CASCADE,
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
+    )
+  `);
+
   const productCountResult = await db.execute('SELECT COUNT(*) as count FROM products');
   const productCount = productCountResult.rows[0].count;
 
@@ -214,6 +270,44 @@ async function initDatabase() {
     }
 
     console.log('已插入示例评价数据');
+  }
+
+  const globalConfigCount = await db.execute('SELECT COUNT(*) as count FROM stock_alert_global_config');
+  if (globalConfigCount.rows[0].count === 0) {
+    await db.execute(`
+      INSERT INTO stock_alert_global_config (default_threshold, enabled, notify_email)
+      VALUES (20, 1, 'admin@example.com')
+    `);
+    console.log('已插入全局库存预警配置');
+  }
+
+  const alertConfigCount = await db.execute('SELECT COUNT(*) as count FROM stock_alert_config');
+  if (alertConfigCount.rows[0].count === 0) {
+    const sampleThresholds = [
+      { product_id: 1, threshold: 15 },
+      { product_id: 2, threshold: 10 },
+      { product_id: 3, threshold: 20 },
+      { product_id: 4, threshold: 50 },
+      { product_id: 5, threshold: 30 },
+      { product_id: 6, threshold: 20 },
+      { product_id: 7, threshold: 100 },
+      { product_id: 8, threshold: 30 },
+      { product_id: 9, threshold: 50 },
+      { product_id: 10, threshold: 15 },
+      { product_id: 11, threshold: 25 },
+      { product_id: 12, threshold: 20 },
+      { product_id: 13, threshold: 20 },
+      { product_id: 14, threshold: 50 },
+      { product_id: 15, threshold: 30 },
+      { product_id: 16, threshold: 10 },
+    ];
+    for (const s of sampleThresholds) {
+      await db.execute(`
+        INSERT INTO stock_alert_config (product_id, threshold, enabled)
+        VALUES (?, ?, 1)
+      `, [s.product_id, s.threshold]);
+    }
+    console.log('已插入示例商品预警阈值配置');
   }
 }
 

@@ -36,6 +36,7 @@
         v-for="product in products"
         :key="product.id"
         class="product-card"
+        :class="{ 'product-card-alert': product.is_alert, 'product-card-severe': product.is_alert && product.stock < product.alert_threshold * 0.5 }"
         @click="goToDetail(product.id)"
       >
         <div class="product-image">
@@ -45,13 +46,23 @@
             @error="handleImageError($event)"
           />
           <span class="category-tag">{{ product.category }}</span>
+          <span v-if="product.is_alert" class="alert-tag">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+            </svg>
+            库存预警
+          </span>
         </div>
         <div class="product-info">
           <h3 class="product-name">{{ product.name }}</h3>
           <p class="product-desc">{{ product.description }}</p>
           <div class="product-footer">
             <span class="price">¥{{ product.price.toFixed(2) }}</span>
-            <span class="stock">库存: {{ product.stock }}</span>
+            <span class="stock" :class="{ 'stock-alert': product.is_alert, 'stock-severe': product.is_alert && product.stock < product.alert_threshold * 0.5 }">
+              库存: {{ product.stock }}
+              <span v-if="product.is_alert" class="threshold-info">/阈值{{ product.alert_threshold }}</span>
+            </span>
           </div>
           <div class="product-card-actions" @click.stop>
             <button
@@ -835,13 +846,37 @@ const quickAddToCart = async (product) => {
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
   cursor: pointer;
+  border: 2px solid transparent;
 }
 
 .product-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
+}
+
+.product-card-alert {
+  border-color: rgba(231, 76, 60, 0.3);
+}
+
+.product-card-alert:hover {
+  border-color: rgba(231, 76, 60, 0.6);
+  box-shadow: 0 8px 25px rgba(231, 76, 60, 0.15);
+}
+
+.product-card-severe {
+  border-color: #e74c3c;
+  animation: pulse-border 2s ease-in-out infinite;
+}
+
+@keyframes pulse-border {
+  0%, 100% {
+    box-shadow: 0 2px 8px rgba(231, 76, 60, 0.1);
+  }
+  50% {
+    box-shadow: 0 4px 20px rgba(231, 76, 60, 0.3);
+  }
 }
 
 .product-image {
@@ -868,6 +903,32 @@ const quickAddToCart = async (product) => {
   border-radius: 12px;
   font-size: 12px;
   font-weight: 500;
+}
+
+.alert-tag {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+  color: white;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  box-shadow: 0 2px 8px rgba(231, 76, 60, 0.4);
+  animation: pulse-tag 2s ease-in-out infinite;
+}
+
+@keyframes pulse-tag {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
 }
 
 .product-info {
@@ -911,6 +972,35 @@ const quickAddToCart = async (product) => {
 .stock {
   font-size: 13px;
   color: #999;
+  transition: color 0.2s;
+}
+
+.stock-alert {
+  color: #e74c3c;
+  font-weight: 600;
+}
+
+.stock-severe {
+  color: #c0392b;
+  font-weight: 700;
+  font-size: 14px;
+  animation: blink-stock 1.5s ease-in-out infinite;
+}
+
+@keyframes blink-stock {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.threshold-info {
+  font-size: 11px;
+  color: #aaa;
+  font-weight: normal;
+  margin-left: 2px;
 }
 
 .product-card-actions {
