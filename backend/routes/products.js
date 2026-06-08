@@ -108,6 +108,8 @@ router.get('/', async (ctx) => {
       min_price: enriched.min_price,
       max_price: enriched.max_price,
       total_stock: enriched.total_stock,
+      specs: enriched.has_multi_spec ? enriched.specs : undefined,
+      skus: enriched.has_multi_spec ? enriched.skus : undefined,
       created_at: enriched.created_at,
       updated_at: enriched.updated_at,
       alert_threshold: p.alert_threshold,

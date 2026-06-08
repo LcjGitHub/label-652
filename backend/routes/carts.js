@@ -64,6 +64,15 @@ function calculateStats(items) {
   return { totalCount, totalPrice };
 }
 
+async function requireSkuForMultiSpec(product, skuId, ctx) {
+  if (product && product.has_multi_spec === 1 && !skuId) {
+    ctx.status = 400;
+    ctx.body = { success: false, message: '该商品为多规格商品，请选择规格后再加入购物车' };
+    return true;
+  }
+  return false;
+}
+
 router.get('/', authMiddleware, async (ctx) => {
   const userId = ctx.state.user.id;
 
@@ -104,6 +113,8 @@ router.post('/add', authMiddleware, async (ctx) => {
     ctx.body = { success: false, message: '商品不存在' };
     return;
   }
+
+  if (await requireSkuForMultiSpec(product, sku_id, ctx)) return;
 
   let sku = null;
   let skuName = '';
@@ -225,6 +236,9 @@ router.put('/update-product/:productId', authMiddleware, async (ctx) => {
     return;
   }
 
+  const product = await getQuery('SELECT * FROM products WHERE id = ?', [productId]);
+  if (product && await requireSkuForMultiSpec(product, sku_id, ctx)) return;
+
   const findWhere = sku_id
     ? 'WHERE user_id = ? AND product_id = ? AND sku_id = ?'
     : 'WHERE user_id = ? AND product_id = ? AND sku_id IS NULL';
@@ -301,6 +315,9 @@ router.delete('/remove-product/:productId', authMiddleware, async (ctx) => {
   const { productId } = ctx.params;
   const { sku_id } = ctx.request.body || {};
 
+  const product = await getQuery('SELECT * FROM products WHERE id = ?', [productId]);
+  if (product && await requireSkuForMultiSpec(product, sku_id, ctx)) return;
+
   const findWhere = sku_id
     ? 'WHERE user_id = ? AND product_id = ? AND sku_id = ?'
     : 'WHERE user_id = ? AND product_id = ? AND sku_id IS NULL';
@@ -362,9 +379,11 @@ router.post('/merge', authMiddleware, async (ctx) => {
 
     if (!product_id || isNaN(qty) || qty < 1) continue;
 
-    const currentStock = await getProductStock(product_id, sku_id || null);
     const product = await getQuery('SELECT * FROM products WHERE id = ?', [product_id]);
     if (!product) continue;
+    if (product.has_multi_spec === 1 && !sku_id) continue;
+
+    const currentStock = await getProductStock(product_id, sku_id || null);
 
     let skuName = '';
     if (sku_id) {

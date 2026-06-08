@@ -60,25 +60,57 @@
           <p class="product-desc">{{ product.description }}</p>
           <div class="product-footer">
             <span class="price">
-              <template v-if="product.has_multi_spec && product.min_price !== undefined && product.max_price !== undefined && product.min_price !== product.max_price">
+              <template v-if="!product.has_multi_spec">
+                ¥{{ product.price.toFixed(2) }}
+              </template>
+              <template v-else-if="getCurrentCardSku(product)">
+                ¥{{ getCurrentCardSku(product).price.toFixed(2) }}
+              </template>
+              <template v-else-if="product.min_price !== undefined && product.max_price !== undefined && product.min_price !== product.max_price">
                 ¥{{ product.min_price.toFixed(2) }} - ¥{{ product.max_price.toFixed(2) }}
               </template>
               <template v-else>
                 ¥{{ product.price.toFixed(2) }}
               </template>
             </span>
-            <span class="stock" :class="{ 'stock-alert': product.is_alert, 'stock-severe': product.is_alert && product.stock <= product.alert_threshold * 0.5 }">
-              库存: {{ product.stock }}
+            <span class="stock" :class="{ 'stock-alert': product.is_alert, 'stock-severe': product.is_alert && getCardDisplayStock(product) <= product.alert_threshold * 0.5 }">
+              库存: {{ getCardDisplayStock(product) }}
               <span v-if="product.is_alert" class="threshold-info">/阈值{{ product.alert_threshold }}</span>
             </span>
           </div>
+
+          <div v-if="product.has_multi_spec && product.specs && product.specs.length > 0" class="card-spec-selector" @click.stop>
+            <div v-for="spec in product.specs" :key="spec.id" class="card-spec-group">
+              <span class="card-spec-label">{{ spec.name }}:</span>
+              <div class="card-spec-value-options">
+                <button
+                  v-for="val in spec.values"
+                  :key="val.id"
+                  type="button"
+                  class="card-spec-value-btn"
+                  :class="{ active: getCardSelectedSpecs(product.id)[spec.name] === val.value }"
+                  @click="selectCardSpecValue(product.id, spec.name, val.value)"
+                >
+                  {{ val.value }}
+                </button>
+              </div>
+            </div>
+            <div v-if="getCurrentCardSku(product)" class="card-selected-sku-info">
+              <span class="card-sku-text">已选: {{ getCurrentCardSku(product).spec_text }}</span>
+            </div>
+            <div v-else class="card-selected-sku-info card-select-prompt">
+              <span class="card-sku-text">请选择规格</span>
+            </div>
+          </div>
+
           <div class="product-card-actions" @click.stop>
             <button
               class="btn btn-sm btn-primary"
-              :disabled="product.stock === 0 || addingCartId === product.id"
+              :disabled="getCardDisplayStock(product) === 0 || addingCartId === product.id || (product.has_multi_spec && !getCurrentCardSku(product))"
               @click="quickAddToCart(product)"
             >
               <span v-if="addingCartId === product.id">添加中...</span>
+              <span v-else-if="product.has_multi_spec && !getCurrentCardSku(product)">请选择规格</span>
               <span v-else>加入购物车</span>
             </button>
             <template v-if="isAuthenticated">
@@ -607,6 +639,57 @@ const selectedCategory = ref('all');
 const showModal = ref(false);
 const editingProduct = ref(null);
 const addingCartId = ref(null);
+
+const cardSelectedSpecs = reactive({});
+
+const getCardSelectedSpecs = (productId) => {
+  if (!cardSelectedSpecs[productId]) {
+    cardSelectedSpecs[productId] = {};
+  }
+  return cardSelectedSpecs[productId];
+};
+
+const selectCardSpecValue = (productId, specName, value) => {
+  const specs = getCardSelectedSpecs(productId);
+  specs[specName] = value;
+};
+
+const getCurrentCardSku = (product) => {
+  if (!product || !product.has_multi_spec || !product.skus) return null;
+  const selected = getCardSelectedSpecs(product.id);
+  const selectedKeys = Object.keys(selected);
+  if (selectedKeys.length === 0) return null;
+
+  const specNames = product.specs ? product.specs.map(s => s.name) : [];
+  const allSelected = specNames.every(name => selected[name]);
+  if (!allSelected) return null;
+
+  return product.skus.find(sku => {
+    if (!sku.specs) {
+      if (!sku.spec_text) return false;
+      const parsed = {};
+      for (const part of sku.spec_text.split(/[;\/]/)) {
+        const [k, v] = part.split(':');
+        if (k && v) parsed[k.trim()] = v.trim();
+      }
+      sku.specs = parsed;
+    }
+    for (const specName of specNames) {
+      if (sku.specs[specName] !== selected[specName]) return false;
+    }
+    return true;
+  }) || null;
+};
+
+const getCardDisplayStock = (product) => {
+  if (!product) return 0;
+  if (product.has_multi_spec) {
+    const sku = getCurrentCardSku(product);
+    if (sku) return sku.stock;
+    return product.total_stock != null ? product.total_stock : product.stock;
+  }
+  return product.stock;
+};
 
 const showImportModal = ref(false);
 const selectedFile = ref(null);
@@ -1316,18 +1399,39 @@ const handleDelete = async (id) => {
 };
 
 const quickAddToCart = async (product) => {
-  addingCartId.value = product.id;
-  try {
-    const result = await handleAddToCart(product.id, 1);
-    if (result.success) {
-      showToast(result.message, 'success');
-    } else {
-      showToast(result.message, 'error');
+  if (product.has_multi_spec) {
+    const sku = getCurrentCardSku(product);
+    if (!sku) {
+      showToast('请先选择完整的商品规格', 'error');
+      return;
     }
-  } catch (err) {
-    showToast('添加失败', 'error');
-  } finally {
-    addingCartId.value = null;
+    addingCartId.value = product.id;
+    try {
+      const result = await handleAddToCart(product.id, 1, sku.id);
+      if (result.success) {
+        showToast(result.message, 'success');
+      } else {
+        showToast(result.message, 'error');
+      }
+    } catch (err) {
+      showToast('添加失败', 'error');
+    } finally {
+      addingCartId.value = null;
+    }
+  } else {
+    addingCartId.value = product.id;
+    try {
+      const result = await handleAddToCart(product.id, 1);
+      if (result.success) {
+        showToast(result.message, 'success');
+      } else {
+        showToast(result.message, 'error');
+      }
+    } catch (err) {
+      showToast('添加失败', 'error');
+    } finally {
+      addingCartId.value = null;
+    }
   }
 };
 
@@ -2323,6 +2427,78 @@ const quickAddToCart = async (product) => {
   font-size: 11px;
   font-weight: 600;
   box-shadow: 0 2px 8px rgba(17, 153, 142, 0.35);
+}
+
+.card-spec-selector {
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid #eee;
+}
+
+.card-spec-group {
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.card-spec-group:last-of-type {
+  margin-bottom: 8px;
+}
+
+.card-spec-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #555;
+  min-width: 40px;
+}
+
+.card-spec-value-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+}
+
+.card-spec-value-btn {
+  padding: 4px 10px;
+  border: 1.5px solid #ddd;
+  background: white;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 12px;
+  color: #555;
+}
+
+.card-spec-value-btn:hover {
+  border-color: #667eea;
+  color: #667eea;
+}
+
+.card-spec-value-btn.active {
+  border-color: #667eea;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.card-selected-sku-info {
+  padding-top: 8px;
+  margin-top: 4px;
+  border-top: 1px dashed #e5e7eb;
+}
+
+.card-selected-sku-info .card-sku-text {
+  font-size: 12px;
+  color: #27ae60;
+  font-weight: 500;
+}
+
+.card-selected-sku-info.card-select-prompt .card-sku-text {
+  color: #f39c12;
 }
 
 .multi-spec-toggle-group {

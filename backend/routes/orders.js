@@ -137,6 +137,12 @@ router.post('/create', authMiddleware, async (ctx) => {
     const effectivePrice = hasSku ? item.sku_price : item.product_price;
     const effectiveStock = hasSku ? item.sku_stock : item.product_stock;
 
+    if (item.has_multi_spec === 1 && !hasSku) {
+      ctx.status = 400;
+      ctx.body = { success: false, message: `商品 "${item.name}" 是多规格商品，请先选择规格再下单` };
+      return;
+    }
+
     if (hasSku && !item.sku_key) {
       ctx.status = 400;
       ctx.body = { success: false, message: `商品 "${item.name}" 的规格已失效，请重新选择` };
