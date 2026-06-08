@@ -3,7 +3,9 @@ import config from '../config.js';
 import bcrypt from 'bcryptjs';
 import { getCache, CACHE_KEYS } from './cache.js';
 
-const dbPath = config.database.path;
+const dbPath = config.database.type === 'sqlite' 
+  ? config.database.sqlite.path 
+  : config.database.sqlite.path;
 const JWT_SECRET = config.jwt?.secret || 'your-secret-key-change-in-production';
 
 const db = createClient({

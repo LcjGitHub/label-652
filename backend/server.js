@@ -15,6 +15,7 @@ import favoritesRouter from './routes/favorites.js';
 import promotionsRouter from './routes/promotions.js';
 import couponsRouter from './routes/coupons.js';
 import { dbReady } from './database.js';
+import { initCacheFromConfig } from './cache.js';
 import config from '../config.js';
 
 const app = new Koa();
@@ -22,7 +23,7 @@ const PORT = config.backend.port;
 const HOST = config.backend.host;
 
 app.use(cors({
-  origin: '*',
+  origin: config.cors.origin,
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization']
 }));
@@ -99,6 +100,7 @@ async function checkPortAvailable(port, host) {
 async function startServer() {
   try {
     await checkPortAvailable(PORT, HOST);
+    await initCacheFromConfig();
     await dbReady;
 
     app.listen(PORT, HOST, () => {

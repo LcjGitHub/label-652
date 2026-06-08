@@ -1,3 +1,6 @@
+import { createClient as createRedisClient } from 'redis';
+import config from '../config.js';
+
 class MemoryCache {
   constructor(defaultTTL = 5 * 60 * 1000) {
     this.store = new Map();
@@ -47,7 +50,7 @@ class MemoryCache {
 }
 
 class RedisCache {
-  constructor(redisClient, defaultTTL = 5 * 60) {
+  constructor(redisClient, defaultTTL = 5 * 60 * 1000) {
     this.redis = redisClient;
     this.defaultTTL = defaultTTL;
   }
@@ -66,7 +69,7 @@ class RedisCache {
     const ttlSeconds = Math.floor((ttl || this.defaultTTL) / 1000);
     const serialized = typeof value === 'string' ? value : JSON.stringify(value);
     if (ttlSeconds > 0) {
-      await this.redis.setex(key, ttlSeconds, serialized);
+      await this.redis.setEx(key, ttlSeconds, serialized);
     } else {
       await this.redis.set(key, serialized);
     }
@@ -86,26 +89,70 @@ class RedisCache {
   }
 
   async clear() {
-    await this.redis.flushdb();
+    await this.redis.flushDb();
     return true;
   }
 }
 
 let cacheInstance = null;
+let redisClientInstance = null;
+
+async function initCacheFromConfig() {
+  if (cacheInstance) return cacheInstance;
+
+  const redisConfig = config.redis;
+
+  if (redisConfig.enabled) {
+    try {
+      const redisOptions = {
+        socket: {
+          host: redisConfig.host,
+          port: redisConfig.port
+        }
+      };
+      if (redisConfig.password) {
+        redisOptions.password = redisConfig.password;
+      }
+      if (redisConfig.db) {
+        redisOptions.database = redisConfig.db;
+      }
+
+      const client = createRedisClient(redisOptions);
+
+      client.on('error', (err) => {
+        console.warn('Redis 客户端错误:', err.message);
+      });
+
+      client.on('connect', () => {
+        console.log('Redis 连接成功');
+      });
+
+      await client.connect();
+      redisClientInstance = client;
+      cacheInstance = new RedisCache(client);
+      console.log('已启用 Redis 缓存');
+      return cacheInstance;
+    } catch (err) {
+      console.warn('Redis 连接失败，回退到内存缓存:', err.message);
+      cacheInstance = new MemoryCache();
+      return cacheInstance;
+    }
+  }
+
+  cacheInstance = new MemoryCache();
+  console.log('已启用内存缓存');
+  return cacheInstance;
+}
 
 async function createCache(options = {}) {
   if (cacheInstance) return cacheInstance;
 
-  const defaultOptions = {
-    defaultTTL: options.defaultTTL || 5 * 60 * 1000,
-    useRedis: false,
-    redisOptions: null
-  };
+  const defaultTTL = options.defaultTTL || 5 * 60 * 1000;
 
   if (options.useRedis && options.redisClient) {
-    cacheInstance = new RedisCache(options.redisClient, defaultOptions.defaultTTL);
+    cacheInstance = new RedisCache(options.redisClient, defaultTTL);
   } else {
-    cacheInstance = new MemoryCache(defaultOptions.defaultTTL);
+    cacheInstance = new MemoryCache(defaultTTL);
   }
 
   return cacheInstance;
@@ -116,6 +163,10 @@ function getCache() {
     cacheInstance = new MemoryCache();
   }
   return cacheInstance;
+}
+
+function getRedisClient() {
+  return redisClientInstance;
 }
 
 const CACHE_KEYS = {
@@ -139,6 +190,8 @@ const CACHE_KEYS = {
 export {
   createCache,
   getCache,
+  initCacheFromConfig,
+  getRedisClient,
   CACHE_KEYS,
   MemoryCache,
   RedisCache

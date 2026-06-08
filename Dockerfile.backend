@@ -1,0 +1,30 @@
+FROM node:20-alpine AS deps
+
+WORKDIR /app
+
+COPY backend/package*.json ./
+RUN npm ci --only=production
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+RUN mkdir -p /app/data
+
+COPY --from=deps /app/node_modules ./node_modules
+
+COPY backend/package*.json ./
+COPY backend/ ./backend/
+COPY config.js ./
+COPY config.json ./
+
+ENV NODE_ENV=production
+ENV BACKEND_HOST=0.0.0.0
+ENV BACKEND_PORT=3005
+
+EXPOSE 3005
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+  CMD wget -qO- http://localhost:3005/api/health || exit 1
+
+CMD ["node", "backend/server.js"]

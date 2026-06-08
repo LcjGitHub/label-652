@@ -1,0 +1,128 @@
+version: '3.8'
+
+x-backend-common: &backend-common
+  build:
+    context: .
+    dockerfile: Dockerfile.backend
+  image: product-management-backend:latest
+  environment:
+    - NODE_ENV=${NODE_ENV:-production}
+    - BACKEND_HOST=${BACKEND_HOST:-0.0.0.0}
+    - BACKEND_PORT=${BACKEND_PORT:-3005}
+    - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production-please}
+    - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
+    - CORS_ORIGIN=${CORS_ORIGIN:-*}
+    - DB_TYPE=${DB_TYPE:-sqlite}
+    - DB_SQLITE_PATH=${DB_SQLITE_PATH:-/app/data/products.db}
+    - DB_HOST=${DB_HOST:-postgres}
+    - DB_PORT=${DB_PORT:-5432}
+    - DB_USER=${DB_USER:-postgres}
+    - DB_PASSWORD=${DB_PASSWORD:-postgres}
+    - DB_NAME=${DB_NAME:-product_management}
+    - USE_REDIS=${USE_REDIS:-true}
+    - REDIS_HOST=${REDIS_HOST:-redis}
+    - REDIS_PORT=${REDIS_PORT:-6379}
+    - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+    - REDIS_DB=${REDIS_DB:-0}
+  volumes:
+    - backend-data:/app/data
+  depends_on:
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+  networks:
+    - app-network
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-product-management}-redis
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "localhost", ${REDIS_PASSWORD:+-a}, "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-product-management}-postgres
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-product_management}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-product_management}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - app-network
+    profiles:
+      - postgres
+
+  backend:
+    <<: *backend-common
+    container_name: ${COMPOSE_PROJECT_NAME:-product-management}-backend
+    deploy:
+      replicas: ${BACKEND_REPLICAS:-1}
+      restart_policy:
+        condition: unless-stopped
+    expose:
+      - "3005"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        - VITE_API_BASE_URL=${VITE_API_BASE_URL:-/api}
+    image: product-management-frontend:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-product-management}-frontend
+    environment:
+      - VITE_API_BASE_URL=${VITE_API_BASE_URL:-/api}
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    depends_on:
+      backend:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - app-network
+
+volumes:
+  redis-data:
+    driver: local
+  postgres-data:
+    driver: local
+  backend-data:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge
