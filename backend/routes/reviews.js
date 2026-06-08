@@ -1,6 +1,6 @@
-const Router = require('koa-router');
-const { runQuery, getQuery, allQuery } = require('../database');
-const { authMiddleware } = require('../middleware/auth');
+import Router from 'koa-router';
+import { runQuery, getQuery, allQuery } from '../database.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = new Router({ prefix: '/api/reviews' });
 
@@ -328,4 +328,4 @@ router.get('/user/my', authMiddleware, async (ctx) => {
   };
 });
 
-module.exports = router;
+export default router;

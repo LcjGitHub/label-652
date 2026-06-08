@@ -1,12 +1,53 @@
-const Router = require('koa-router');
-const multer = require('@koa/multer');
-const ExcelJS = require('exceljs');
-const { categories, runQuery, getQuery, allQuery } = require('../database');
-const { authMiddleware } = require('../middleware/auth');
-const { getProductThreshold, getGlobalConfig } = require('./stockAlerts');
+import Router from 'koa-router';
+import multer from '@koa/multer';
+import ExcelJS from 'exceljs';
+import {
+  categories,
+  runQuery,
+  getQuery,
+  allQuery,
+  getProductSpecs,
+  getProductSkus,
+  getProductPriceRange,
+  getProductStock
+} from '../database.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { getProductThreshold, getGlobalConfig } from './stockAlerts.js';
 
 const router = new Router({ prefix: '/api/products' });
 const upload = multer({ storage: multer.memoryStorage() });
+
+async function enrichProductWithSpecs(product) {
+  if (!product) return product;
+  const enriched = { ...product };
+  enriched.has_multi_spec = product.has_multi_spec === 1;
+
+  if (enriched.has_multi_spec) {
+    const priceRange = await getProductPriceRange(product.id);
+    enriched.min_price = priceRange.min_price;
+    enriched.max_price = priceRange.max_price;
+    enriched.total_stock = await getProductStock(product.id);
+    enriched.specs = await getProductSpecs(product.id);
+    enriched.skus = await getProductSkus(product.id);
+    for (const sku of enriched.skus) {
+      const specsObj = {};
+      if (sku.spec_text) {
+        for (const part of sku.spec_text.split(/[;\/]/)) {
+          const [k, v] = part.split(':');
+          if (k && v) specsObj[k.trim()] = v.trim();
+        }
+      }
+      sku.specs = specsObj;
+    }
+  } else {
+    enriched.min_price = product.price;
+    enriched.max_price = product.price;
+    enriched.total_stock = product.stock;
+    enriched.specs = [];
+    enriched.skus = [];
+  }
+  return enriched;
+}
 
 const EXCEL_HEADERS = [
   { key: 'name', header: '商品名称', width: 30, required: true },
@@ -49,24 +90,31 @@ router.get('/', async (ctx) => {
     LIMIT ? OFFSET ?
   `, [globalConfig.default_threshold, globalConfig.enabled, ...params, limitNum, offset]);
 
-  const productsWithAlert = products.map(p => {
+  const productsWithAlert = [];
+  for (const p of products) {
+    const enriched = await enrichProductWithSpecs(p);
+    const displayStock = enriched.has_multi_spec ? enriched.total_stock : p.stock;
     const alertEnabled = p.alert_enabled === 1 && globalEnabled;
-    const isAlert = alertEnabled && p.stock < p.alert_threshold;
-    return {
-      id: p.id,
-      name: p.name,
-      description: p.description,
-      price: p.price,
-      category: p.category,
-      stock: p.stock,
-      image: p.image,
-      created_at: p.created_at,
-      updated_at: p.updated_at,
+    const isAlert = alertEnabled && displayStock < p.alert_threshold;
+    productsWithAlert.push({
+      id: enriched.id,
+      name: enriched.name,
+      description: enriched.description,
+      price: enriched.price,
+      category: enriched.category,
+      stock: displayStock,
+      image: enriched.image,
+      has_multi_spec: enriched.has_multi_spec,
+      min_price: enriched.min_price,
+      max_price: enriched.max_price,
+      total_stock: enriched.total_stock,
+      created_at: enriched.created_at,
+      updated_at: enriched.updated_at,
       alert_threshold: p.alert_threshold,
       alert_enabled: alertEnabled,
       is_alert: isAlert
-    };
-  });
+    });
+  }
 
   ctx.body = {
     success: true,
@@ -371,21 +419,29 @@ router.get('/:id', async (ctx) => {
     return;
   }
 
+  const enriched = await enrichProductWithSpecs(product);
+  const displayStock = enriched.has_multi_spec ? enriched.total_stock : product.stock;
   const alertEnabled = product.alert_enabled === 1 && globalConfig.enabled === 1;
-  const isAlert = alertEnabled && product.stock < product.alert_threshold;
+  const isAlert = alertEnabled && displayStock < product.alert_threshold;
 
   ctx.body = {
     success: true,
     data: {
-      id: product.id,
-      name: product.name,
-      description: product.description,
-      price: product.price,
-      category: product.category,
-      stock: product.stock,
-      image: product.image,
-      created_at: product.created_at,
-      updated_at: product.updated_at,
+      id: enriched.id,
+      name: enriched.name,
+      description: enriched.description,
+      price: enriched.price,
+      category: enriched.category,
+      stock: displayStock,
+      image: enriched.image,
+      has_multi_spec: enriched.has_multi_spec,
+      min_price: enriched.min_price,
+      max_price: enriched.max_price,
+      total_stock: enriched.total_stock,
+      specs: enriched.specs,
+      skus: enriched.skus,
+      created_at: enriched.created_at,
+      updated_at: enriched.updated_at,
       alert_threshold: product.alert_threshold,
       alert_enabled: alertEnabled,
       is_alert: isAlert
@@ -393,8 +449,106 @@ router.get('/:id', async (ctx) => {
   };
 });
 
+router.get('/:id/skus', async (ctx) => {
+  const { id } = ctx.params;
+  const product = await getQuery('SELECT id, has_multi_spec FROM products WHERE id = ?', [id]);
+  if (!product) {
+    ctx.status = 404;
+    ctx.body = { success: false, message: '商品不存在' };
+    return;
+  }
+
+  if (product.has_multi_spec !== 1) {
+    ctx.body = {
+      success: true,
+      data: {
+        has_multi_spec: false,
+        specs: [],
+        skus: []
+      }
+    };
+    return;
+  }
+
+  const specs = await getProductSpecs(id);
+  const skus = await getProductSkus(id);
+
+  ctx.body = {
+    success: true,
+    data: {
+      has_multi_spec: true,
+      specs,
+      skus
+    }
+  };
+});
+
+async function saveProductSpecsAndSkus(productId, hasMultiSpec, specs, skus) {
+  await runQuery('DELETE FROM product_specs WHERE product_id = ?', [productId]);
+  await runQuery('DELETE FROM product_spec_values WHERE product_id = ?', [productId]);
+  await runQuery('DELETE FROM product_skus WHERE product_id = ?', [productId]);
+
+  if (!hasMultiSpec || !specs || !skus) return;
+
+  const specIdMap = {};
+  for (let si = 0; si < specs.length; si++) {
+    const spec = specs[si];
+    const specResult = await runQuery(
+      'INSERT INTO product_specs (product_id, name, sort_order) VALUES (?, ?, ?)',
+      [productId, spec.name, si]
+    );
+    const dbSpecId = specResult.lastID;
+    specIdMap[spec.name] = { id: dbSpecId, valueMap: {} };
+
+    if (spec.values && Array.isArray(spec.values)) {
+      for (let vi = 0; vi < spec.values.length; vi++) {
+        const val = spec.values[vi];
+        const valResult = await runQuery(
+          'INSERT INTO product_spec_values (spec_id, product_id, value, sort_order) VALUES (?, ?, ?, ?)',
+          [dbSpecId, productId, val, vi]
+        );
+        specIdMap[spec.name].valueMap[val] = valResult.lastID;
+      }
+    }
+  }
+
+  if (skus && Array.isArray(skus)) {
+    for (let si = 0; si < skus.length; si++) {
+      const sku = skus[si];
+      const specValueIds = [];
+      const specTextParts = [];
+      if (sku.specs && typeof sku.specs === 'object') {
+        for (const [specName, specValue] of Object.entries(sku.specs)) {
+          if (specIdMap[specName] && specIdMap[specName].valueMap[specValue] !== undefined) {
+            specValueIds.push(specIdMap[specName].valueMap[specValue]);
+          }
+          specTextParts.push(`${specName}:${specValue}`);
+        }
+      }
+      const sortedValueIds = specValueIds.sort((a, b) => a - b).join(',');
+      const specText = specTextParts.join(';');
+      await runQuery(
+        `INSERT INTO product_skus (product_id, sku_code, price, stock, image, spec_value_ids, spec_text)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          productId,
+          sku.sku_code || `SKU-${productId}-${String(si).padStart(3, '0')}`,
+          sku.price,
+          sku.stock || 0,
+          sku.image || null,
+          sortedValueIds,
+          specText
+        ]
+      );
+    }
+  }
+}
+
 router.post('/', authMiddleware, async (ctx) => {
-  const { name, description, price, category, stock = 0, image } = ctx.request.body;
+  const {
+    name, description, price, category, stock = 0, image,
+    has_multi_spec = false, specs = [], skus = []
+  } = ctx.request.body;
 
   if (!name || !price || !category) {
     ctx.status = 400;
@@ -408,21 +562,36 @@ router.post('/', authMiddleware, async (ctx) => {
     return;
   }
 
+  if (has_multi_spec && (!skus || skus.length === 0)) {
+    ctx.status = 400;
+    ctx.body = { success: false, message: '启用多规格时必须设置至少一个 SKU' };
+    return;
+  }
+
   const result = await runQuery(`
-    INSERT INTO products (name, description, price, category, stock, image)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `, [name, description, price, category, stock, image]);
+    INSERT INTO products (name, description, price, category, stock, image, has_multi_spec)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `, [name, description, price, category, stock, image, has_multi_spec ? 1 : 0]);
+
+  const productId = result.lastID;
+
+  if (has_multi_spec) {
+    await saveProductSpecsAndSkus(productId, true, specs, skus);
+  }
 
   ctx.status = 201;
   ctx.body = {
     success: true,
-    data: { id: result.lastID, name, description, price, category, stock, image }
+    data: { id: productId, name, description, price, category, stock, image, has_multi_spec }
   };
 });
 
 router.put('/:id', authMiddleware, async (ctx) => {
   const { id } = ctx.params;
-  const { name, description, price, category, stock, image } = ctx.request.body;
+  const {
+    name, description, price, category, stock, image,
+    has_multi_spec, specs, skus
+  } = ctx.request.body;
 
   const existing = await getQuery('SELECT * FROM products WHERE id = ?', [id]);
 
@@ -438,6 +607,12 @@ router.put('/:id', authMiddleware, async (ctx) => {
     return;
   }
 
+  if (has_multi_spec && (!skus || skus.length === 0)) {
+    ctx.status = 400;
+    ctx.body = { success: false, message: '启用多规格时必须设置至少一个 SKU' };
+    return;
+  }
+
   const updateFields = [];
   const updateValues = [];
 
@@ -447,6 +622,10 @@ router.put('/:id', authMiddleware, async (ctx) => {
   if (category !== undefined) { updateFields.push('category = ?'); updateValues.push(category); }
   if (stock !== undefined) { updateFields.push('stock = ?'); updateValues.push(stock); }
   if (image !== undefined) { updateFields.push('image = ?'); updateValues.push(image); }
+  if (has_multi_spec !== undefined) {
+    updateFields.push('has_multi_spec = ?');
+    updateValues.push(has_multi_spec ? 1 : 0);
+  }
 
   updateFields.push('updated_at = CURRENT_TIMESTAMP');
   updateValues.push(id);
@@ -456,9 +635,17 @@ router.put('/:id', authMiddleware, async (ctx) => {
     WHERE id = ?
   `, updateValues);
 
-  const updatedProduct = await getQuery('SELECT * FROM products WHERE id = ?', [id]);
+  if (has_multi_spec !== undefined || specs !== undefined || skus !== undefined) {
+    const finalHasMultiSpec = has_multi_spec !== undefined ? has_multi_spec : existing.has_multi_spec === 1;
+    const finalSpecs = specs !== undefined ? specs : (await getProductSpecs(id));
+    const finalSkus = skus !== undefined ? skus : (await getProductSkus(id));
+    await saveProductSpecsAndSkus(id, finalHasMultiSpec, finalSpecs, finalSkus);
+  }
 
-  ctx.body = { success: true, data: updatedProduct };
+  const updatedProduct = await getQuery('SELECT * FROM products WHERE id = ?', [id]);
+  const enriched = await enrichProductWithSpecs(updatedProduct);
+
+  ctx.body = { success: true, data: enriched };
 });
 
 router.delete('/:id', authMiddleware, async (ctx) => {
@@ -477,4 +664,4 @@ router.delete('/:id', authMiddleware, async (ctx) => {
   ctx.body = { success: true, message: '删除成功' };
 });
 
-module.exports = router;
+export default router;

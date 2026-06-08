@@ -1,5 +1,5 @@
-const jwt = require('jsonwebtoken');
-const { JWT_SECRET, getQuery } = require('../database');
+import jwt from 'jsonwebtoken';
+import { JWT_SECRET, getQuery } from '../database.js';
 
 async function authMiddleware(ctx, next) {
   const authHeader = ctx.headers.authorization;
@@ -56,4 +56,4 @@ async function optionalAuthMiddleware(ctx, next) {
   await next();
 }
 
-module.exports = { authMiddleware, optionalAuthMiddleware };
+export { authMiddleware, optionalAuthMiddleware };

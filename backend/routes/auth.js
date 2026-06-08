@@ -1,8 +1,8 @@
-const Router = require('koa-router');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const { runQuery, getQuery, JWT_SECRET } = require('../database');
-const { authMiddleware } = require('../middleware/auth');
+import Router from 'koa-router';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { runQuery, getQuery, JWT_SECRET } from '../database.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = new Router({ prefix: '/api/auth' });
 
@@ -155,4 +155,4 @@ router.put('/profile', authMiddleware, async (ctx) => {
   ctx.body = { success: true, data: updatedUser };
 });
 
-module.exports = router;
+export default router;

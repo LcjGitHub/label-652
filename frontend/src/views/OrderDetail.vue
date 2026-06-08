@@ -96,6 +96,7 @@
             />
             <div class="item-info">
               <h3 class="item-name">{{ item.product_name }}</h3>
+              <p v-if="item.sku_name" class="item-sku">{{ item.sku_name }}</p>
               <p class="item-price">¥{{ item.product_price.toFixed(2) }}</p>
             </div>
             <div class="item-quantity">x {{ item.quantity }}</div>
@@ -479,6 +480,16 @@ onMounted(() => {
   font-size: 15px;
   font-weight: 500;
   color: #333;
+}
+
+.item-sku {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #888;
+  background: #e8e8e8;
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
 }
 
 .item-price {

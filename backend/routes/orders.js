@@ -1,6 +1,6 @@
-const Router = require('koa-router');
-const { runQuery, getQuery, allQuery } = require('../database');
-const { authMiddleware } = require('../middleware/auth');
+import Router from 'koa-router';
+import { runQuery, getQuery, allQuery } from '../database.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = new Router({ prefix: '/api/orders' });
 
@@ -85,9 +85,15 @@ const rollbackStock = async (orderId) => {
   `, [orderId]);
 
   for (const item of orderItems) {
-    await runQuery(`
-      UPDATE products SET stock = stock + ? WHERE id = ?
-    `, [item.quantity, item.product_id]);
+    if (item.sku_id) {
+      await runQuery(`
+        UPDATE product_skus SET stock = stock + ? WHERE id = ?
+      `, [item.quantity, item.sku_id]);
+    } else {
+      await runQuery(`
+        UPDATE products SET stock = stock + ? WHERE id = ?
+      `, [item.quantity, item.product_id]);
+    }
   }
 };
 
@@ -105,11 +111,17 @@ router.post('/create', authMiddleware, async (ctx) => {
     SELECT 
       c.*,
       p.name,
-      p.price,
-      p.stock,
-      p.image
+      p.price as product_price,
+      p.stock as product_stock,
+      p.image,
+      p.has_multi_spec,
+      sk.id as sku_key,
+      sk.price as sku_price,
+      sk.stock as sku_stock,
+      sk.spec_text
     FROM carts c
     INNER JOIN products p ON c.product_id = p.id
+    LEFT JOIN product_skus sk ON c.sku_id = sk.id
     WHERE c.user_id = ?
     ORDER BY c.created_at DESC
   `, [userId]);
@@ -121,15 +133,26 @@ router.post('/create', authMiddleware, async (ctx) => {
   }
 
   for (const item of cartItems) {
-    if (item.quantity > item.stock) {
+    const hasSku = item.sku_id != null;
+    const effectivePrice = hasSku ? item.sku_price : item.product_price;
+    const effectiveStock = hasSku ? item.sku_stock : item.product_stock;
+
+    if (hasSku && !item.sku_key) {
       ctx.status = 400;
-      ctx.body = { success: false, message: `商品 "${item.name}" 库存不足，仅剩 ${item.stock} 件` };
+      ctx.body = { success: false, message: `商品 "${item.name}" 的规格已失效，请重新选择` };
       return;
     }
+    if (item.quantity > effectiveStock) {
+      ctx.status = 400;
+      ctx.body = { success: false, message: `商品 "${item.name}" ${hasSku ? '(' + (item.spec_text || '') + ')' : ''} 库存不足，仅剩 ${effectiveStock} 件` };
+      return;
+    }
+    item._effectivePrice = effectivePrice;
+    item._effectiveStock = effectiveStock;
   }
 
   const orderNo = generateOrderNo();
-  const totalAmount = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const totalAmount = cartItems.reduce((sum, item) => sum + item._effectivePrice * item.quantity, 0);
 
   const result = await runQuery(`
     INSERT INTO orders (user_id, order_no, total_amount, status, shipping_address, payment_method, remark)
@@ -139,15 +162,24 @@ router.post('/create', authMiddleware, async (ctx) => {
   const orderId = result.lastID;
 
   for (const item of cartItems) {
-    const subtotal = item.price * item.quantity;
-    await runQuery(`
-      INSERT INTO order_items (order_id, product_id, product_name, product_price, quantity, subtotal, product_image)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, [orderId, item.product_id, item.name, item.price, item.quantity, subtotal, item.image]);
+    const hasSku = item.sku_id != null;
+    const subtotal = item._effectivePrice * item.quantity;
+    const skuName = hasSku ? (item.sku_name || item.spec_text || '') : '';
 
     await runQuery(`
-      UPDATE products SET stock = stock - ? WHERE id = ?
-    `, [item.quantity, item.product_id]);
+      INSERT INTO order_items (order_id, product_id, product_name, product_price, quantity, subtotal, product_image, sku_id, sku_name)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [orderId, item.product_id, item.name, item._effectivePrice, item.quantity, subtotal, item.image, hasSku ? item.sku_id : null, skuName || null]);
+
+    if (hasSku) {
+      await runQuery(`
+        UPDATE product_skus SET stock = stock - ? WHERE id = ?
+      `, [item.quantity, item.sku_id]);
+    } else {
+      await runQuery(`
+        UPDATE products SET stock = stock - ? WHERE id = ?
+      `, [item.quantity, item.product_id]);
+    }
   }
 
   await runQuery('DELETE FROM carts WHERE user_id = ?', [userId]);
@@ -272,4 +304,4 @@ router.put('/:id/status', authMiddleware, async (ctx) => {
   };
 });
 
-module.exports = router;
+export default router;

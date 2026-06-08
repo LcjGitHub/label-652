@@ -1,7 +1,7 @@
-const Router = require('koa-router');
-const ExcelJS = require('exceljs');
-const { runQuery, getQuery, allQuery } = require('../database');
-const { authMiddleware } = require('../middleware/auth');
+import Router from 'koa-router';
+import ExcelJS from 'exceljs';
+import { runQuery, getQuery, allQuery, getProductStock } from '../database.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = new Router({ prefix: '/api/stock-alerts' });
 
@@ -242,14 +242,20 @@ router.get('/alert-products', authMiddleware, async (ctx) => {
   const products = await allQuery(`
     SELECT 
       p.*,
+      CASE WHEN p.has_multi_spec = 1 THEN COALESCE(sku_total.total_stock, 0) ELSE p.stock END as effective_stock,
       COALESCE(sac.threshold, ?) as alert_threshold,
       COALESCE(sac.enabled, ?) as alert_enabled
     FROM products p
     LEFT JOIN stock_alert_config sac ON p.id = sac.product_id
-    WHERE p.stock < COALESCE(sac.threshold, ?)
+    LEFT JOIN (
+      SELECT product_id, SUM(stock) as total_stock
+      FROM product_skus
+      GROUP BY product_id
+    ) sku_total ON p.id = sku_total.product_id
+    WHERE (CASE WHEN p.has_multi_spec = 1 THEN COALESCE(sku_total.total_stock, 0) ELSE p.stock END) < COALESCE(sac.threshold, ?)
       AND COALESCE(sac.enabled, ?) = 1
       AND ? = 1
-    ORDER BY p.stock ASC
+    ORDER BY effective_stock ASC
   `, [
     globalConfig.default_threshold,
     globalConfig.enabled,
@@ -260,9 +266,10 @@ router.get('/alert-products', authMiddleware, async (ctx) => {
 
   const data = products.map(p => ({
     ...p,
+    stock: p.effective_stock,
     alert_enabled: p.alert_enabled === 1,
     is_alert: true,
-    shortage: p.alert_threshold - p.stock
+    shortage: p.alert_threshold - p.effective_stock
   }));
 
   ctx.body = {
@@ -285,7 +292,12 @@ router.get('/alert-count', async (ctx) => {
     SELECT COUNT(*) as count
     FROM products p
     LEFT JOIN stock_alert_config sac ON p.id = sac.product_id
-    WHERE p.stock < COALESCE(sac.threshold, ?)
+    LEFT JOIN (
+      SELECT product_id, SUM(stock) as total_stock
+      FROM product_skus
+      GROUP BY product_id
+    ) sku_total ON p.id = sku_total.product_id
+    WHERE (CASE WHEN p.has_multi_spec = 1 THEN COALESCE(sku_total.total_stock, 0) ELSE p.stock END) < COALESCE(sac.threshold, ?)
       AND COALESCE(sac.enabled, 1) = 1
   `, [globalConfig.default_threshold]);
 
@@ -321,22 +333,34 @@ router.post('/restock-order', authMiddleware, async (ctx) => {
     productsToRestock = await allQuery(`
       SELECT 
         p.*,
+        CASE WHEN p.has_multi_spec = 1 THEN COALESCE(sku_total.total_stock, 0) ELSE p.stock END as effective_stock,
         COALESCE(sac.threshold, ?) as alert_threshold
       FROM products p
       LEFT JOIN stock_alert_config sac ON p.id = sac.product_id
+      LEFT JOIN (
+        SELECT product_id, SUM(stock) as total_stock
+        FROM product_skus
+        GROUP BY product_id
+      ) sku_total ON p.id = sku_total.product_id
       WHERE p.id IN (${placeholders})
     `, [globalConfig.default_threshold, ...product_ids]);
   } else {
     productsToRestock = await allQuery(`
       SELECT 
         p.*,
+        CASE WHEN p.has_multi_spec = 1 THEN COALESCE(sku_total.total_stock, 0) ELSE p.stock END as effective_stock,
         COALESCE(sac.threshold, ?) as alert_threshold
       FROM products p
       LEFT JOIN stock_alert_config sac ON p.id = sac.product_id
-      WHERE p.stock < COALESCE(sac.threshold, ?)
+      LEFT JOIN (
+        SELECT product_id, SUM(stock) as total_stock
+        FROM product_skus
+        GROUP BY product_id
+      ) sku_total ON p.id = sku_total.product_id
+      WHERE (CASE WHEN p.has_multi_spec = 1 THEN COALESCE(sku_total.total_stock, 0) ELSE p.stock END) < COALESCE(sac.threshold, ?)
         AND COALESCE(sac.enabled, 1) = 1
         AND ? = 1
-      ORDER BY p.stock ASC
+      ORDER BY effective_stock ASC
     `, [
       globalConfig.default_threshold,
       globalConfig.default_threshold,
@@ -361,9 +385,10 @@ router.post('/restock-order', authMiddleware, async (ctx) => {
   const items = [];
 
   for (const product of productsToRestock) {
+    const currentStock = product.effective_stock !== undefined ? product.effective_stock : product.stock;
     const suggestedQty = Math.max(
-      (product.alert_threshold - product.stock) * multiplier,
-      product.alert_threshold
+      Math.max((product.alert_threshold - currentStock) * multiplier, product.alert_threshold),
+      1
     );
     const subtotal = product.price * suggestedQty;
     totalAmount += subtotal;
@@ -377,7 +402,7 @@ router.post('/restock-order', authMiddleware, async (ctx) => {
       orderId,
       product.id,
       product.name,
-      product.stock,
+      currentStock,
       product.alert_threshold,
       suggestedQty,
       product.price,
@@ -387,7 +412,7 @@ router.post('/restock-order', authMiddleware, async (ctx) => {
     items.push({
       product_id: product.id,
       product_name: product.name,
-      current_stock: product.stock,
+      current_stock: currentStock,
       threshold: product.alert_threshold,
       suggested_quantity: suggestedQty,
       unit_price: product.price,
@@ -630,4 +655,4 @@ router.get('/restock-orders', authMiddleware, async (ctx) => {
   };
 });
 
-module.exports = { router, getProductThreshold, getGlobalConfig };
+export { router, getProductThreshold, getGlobalConfig };

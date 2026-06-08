@@ -33,7 +33,10 @@
           </span>
         </div>
         <div class="product-info-large">
-          <span class="category-tag">{{ product.category }}</span>
+          <div class="detail-tags">
+            <span class="category-tag">{{ product.category }}</span>
+            <span v-if="product.has_multi_spec" class="detail-spec-tag">多规格</span>
+          </div>
           <h1 class="product-title">{{ product.name }}</h1>
           <p class="product-description">{{ product.description }}</p>
           
@@ -70,7 +73,20 @@
 
           <div class="product-price-large">
             <span class="price-label">价格</span>
-            <span class="price-value">¥{{ product.price.toFixed(2) }}</span>
+            <span class="price-value">
+              <template v-if="!product.has_multi_spec">
+                ¥{{ product.price.toFixed(2) }}
+              </template>
+              <template v-else-if="currentSku">
+                ¥{{ currentSku.price.toFixed(2) }}
+              </template>
+              <template v-else-if="product.min_price !== undefined && product.max_price !== undefined && product.min_price !== product.max_price">
+                ¥{{ product.min_price.toFixed(2) }} - ¥{{ product.max_price.toFixed(2) }}
+              </template>
+              <template v-else>
+                ¥{{ product.price.toFixed(2) }}
+              </template>
+            </span>
           </div>
           <div class="product-stock-large">
             <span class="stock-label">库存:</span>
@@ -78,15 +94,40 @@
               class="stock-value"
               :class="{ 
                 'stock-alert': product.is_alert, 
-                'stock-severe': product.is_alert && product.stock <= product.alert_threshold * 0.5 
+                'stock-severe': product.is_alert && displayStock <= (product.alert_threshold || 20) * 0.5 
               }"
             >
-              {{ product.stock }}
+              {{ displayStock }}
             </span>
             <span v-if="product.is_alert" class="stock-unit">件</span>
             <span v-if="product.is_alert" class="threshold-info">/阈值{{ product.alert_threshold }} 件</span>
             <span v-if="!product.is_alert" class="stock-unit">件</span>
           </div>
+
+          <div v-if="product.has_multi_spec && product.specs && product.specs.length > 0" class="spec-selector">
+            <div v-for="spec in product.specs" :key="spec.id" class="spec-group">
+              <span class="spec-label">{{ spec.name }}:</span>
+              <div class="spec-value-options">
+                <button
+                  v-for="val in spec.values"
+                  :key="val.id"
+                  type="button"
+                  class="spec-value-btn"
+                  :class="{ active: selectedSpecs[spec.name] === val.value }"
+                  @click="selectSpecValue(spec.name, val.value)"
+                >
+                  {{ val.value }}
+                </button>
+              </div>
+            </div>
+            <div v-if="currentSku" class="selected-sku-info">
+              <span class="sku-text">已选: {{ currentSku.spec_text }}</span>
+            </div>
+            <div v-else class="selected-sku-info select-prompt">
+              <span class="sku-text">请选择规格</span>
+            </div>
+          </div>
+
           <div class="product-actions">
             <div class="quantity-selector">
               <span class="qty-label">数量：</span>
@@ -100,18 +141,19 @@
               <span class="qty-value">{{ addToCartQuantity }}</span>
               <button
                 class="qty-btn"
-                :disabled="addToCartQuantity >= product.stock || cartLoading"
-                @click="addToCartQuantity = Math.min(product.stock, addToCartQuantity + 1)"
+                :disabled="addToCartQuantity >= displayStock || cartLoading"
+                @click="addToCartQuantity = Math.min(displayStock, addToCartQuantity + 1)"
               >
                 +
               </button>
             </div>
             <button
               class="btn btn-primary btn-large"
-              :disabled="product.stock === 0 || cartLoading"
+              :disabled="displayStock === 0 || cartLoading || (product.has_multi_spec && !currentSku)"
               @click="doAddToCart"
             >
               <span v-if="cartLoading">添加中...</span>
+              <span v-else-if="product.has_multi_spec && !currentSku">请选择规格</span>
               <span v-else>加入购物车</span>
             </button>
             <button
@@ -329,6 +371,7 @@ const reviewsLoading = ref(false);
 const addToCartQuantity = ref(1);
 const similarProducts = ref([]);
 const similarLoading = ref(false);
+const selectedSpecs = reactive({});
 
 const showReviewModal = ref(false);
 const editingReview = ref(null);
@@ -360,6 +403,52 @@ const confirmDialog = reactive({
   cancelText: '取消',
   onConfirm: null
 });
+
+const currentSku = computed(() => {
+  if (!product.value || !product.value.has_multi_spec || !product.value.skus) return null;
+  const selectedKeys = Object.keys(selectedSpecs);
+  if (selectedKeys.length === 0) return null;
+
+  const specNames = product.value.specs ? product.value.specs.map(s => s.name) : [];
+  const allSelected = specNames.every(name => selectedSpecs[name]);
+  if (!allSelected) return null;
+
+  return product.value.skus.find(sku => {
+    if (!sku.specs) {
+      if (sku.spec_text) {
+        const parts = sku.spec_text.split(' / ').map(p => p.split(':'));
+        for (const [k, v] of parts) {
+          if (selectedSpecs[k] !== v) return false;
+        }
+        return true;
+      }
+      return false;
+    }
+    for (const specName of specNames) {
+      if (sku.specs[specName] !== selectedSpecs[specName]) return false;
+    }
+    return true;
+  }) || null;
+});
+
+const displayStock = computed(() => {
+  if (!product.value) return 0;
+  if (product.value.has_multi_spec && currentSku.value) {
+    return currentSku.value.stock;
+  }
+  return product.value.stock;
+});
+
+const selectSpecValue = (specName, value) => {
+  selectedSpecs[specName] = value;
+  addToCartQuantity.value = 1;
+};
+
+const resetSelectedSpecs = () => {
+  for (const key of Object.keys(selectedSpecs)) {
+    delete selectedSpecs[key];
+  }
+};
 
 const handleFilterChange = () => {
   reviewPagination.page = 1;
@@ -468,6 +557,7 @@ const getRatingPercent = (rating) => {
 
 const fetchProduct = async () => {
   loading.value = true;
+  resetSelectedSpecs();
   try {
     const res = await getProduct(productId.value);
     if (res.data.success) {
@@ -485,7 +575,8 @@ const fetchProduct = async () => {
 };
 
 const doAddToCart = async () => {
-  const result = await handleAddToCart(productId.value, addToCartQuantity.value);
+  const skuId = product.value?.has_multi_spec && currentSku.value ? currentSku.value.id : null;
+  const result = await handleAddToCart(productId.value, addToCartQuantity.value, skuId);
   if (result.success) {
     showToast(result.message, 'success');
     if (confirm('商品已加入购物车，是否前往购物车查看？')) {
@@ -743,6 +834,13 @@ watch(user, (newUser) => {
   }
 }
 
+.detail-tags {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
 .category-tag {
   display: inline-block;
   background: rgba(102, 126, 234, 0.1);
@@ -751,7 +849,17 @@ watch(user, (newUser) => {
   border-radius: 12px;
   font-size: 12px;
   font-weight: 500;
-  margin-bottom: 12px;
+  margin: 0;
+}
+
+.detail-spec-tag {
+  display: inline-block;
+  background: rgba(39, 174, 96, 0.1);
+  color: #27ae60;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .product-title {
@@ -917,6 +1025,72 @@ watch(user, (newUser) => {
 .product-stock-large .threshold-info {
   color: #999;
   font-size: 13px;
+}
+
+.spec-selector {
+  background: #f9fafb;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+.spec-group {
+  margin-bottom: 16px;
+}
+
+.spec-group:last-child {
+  margin-bottom: 12px;
+}
+
+.spec-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 10px;
+  display: block;
+}
+
+.spec-value-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.spec-value-btn {
+  padding: 8px 18px;
+  border: 2px solid #ddd;
+  background: white;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #555;
+  transition: all 0.2s;
+}
+
+.spec-value-btn:hover {
+  border-color: #667eea;
+  color: #667eea;
+}
+
+.spec-value-btn.active {
+  border-color: #667eea;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.selected-sku-info {
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.selected-sku-info .sku-text {
+  font-size: 14px;
+  color: #27ae60;
+  font-weight: 500;
+}
+
+.selected-sku-info.select-prompt .sku-text {
+  color: #f39c12;
 }
 
 .product-actions {

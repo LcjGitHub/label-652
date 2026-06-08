@@ -46,6 +46,7 @@
             @error="handleImageError($event)"
           />
           <span class="category-tag">{{ product.category }}</span>
+          <span v-if="product.has_multi_spec" class="spec-tag">多规格</span>
           <span v-if="product.is_alert" class="alert-tag">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
@@ -58,7 +59,14 @@
           <h3 class="product-name">{{ product.name }}</h3>
           <p class="product-desc">{{ product.description }}</p>
           <div class="product-footer">
-            <span class="price">¥{{ product.price.toFixed(2) }}</span>
+            <span class="price">
+              <template v-if="product.has_multi_spec && product.min_price !== undefined && product.max_price !== undefined && product.min_price !== product.max_price">
+                ¥{{ product.min_price.toFixed(2) }} - ¥{{ product.max_price.toFixed(2) }}
+              </template>
+              <template v-else>
+                ¥{{ product.price.toFixed(2) }}
+              </template>
+            </span>
             <span class="stock" :class="{ 'stock-alert': product.is_alert, 'stock-severe': product.is_alert && product.stock <= product.alert_threshold * 0.5 }">
               库存: {{ product.stock }}
               <span v-if="product.is_alert" class="threshold-info">/阈值{{ product.alert_threshold }}</span>
@@ -126,31 +134,9 @@
             <label>商品描述</label>
             <textarea
               v-model="formData.description"
-              rows="3"
+              rows="2"
               placeholder="请输入商品描述"
             ></textarea>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>价格 *</label>
-              <input
-                type="number"
-                v-model.number="formData.price"
-                required
-                min="0"
-                step="0.01"
-                placeholder="0.00"
-              />
-            </div>
-            <div class="form-group">
-              <label>库存</label>
-              <input
-                type="number"
-                v-model.number="formData.stock"
-                min="0"
-                placeholder="0"
-              />
-            </div>
           </div>
           <div class="form-row">
             <div class="form-group">
@@ -171,6 +157,153 @@
               />
             </div>
           </div>
+
+          <div class="form-group multi-spec-toggle-group">
+            <label>启用多规格 (SKU)</label>
+            <label class="switch">
+              <input type="checkbox" v-model="formData.has_multi_spec" />
+              <span class="slider"></span>
+            </label>
+            <span class="help-text">启用后可为颜色、尺寸等不同规格设置独立的价格和库存</span>
+          </div>
+
+          <template v-if="!formData.has_multi_spec">
+            <div class="form-row">
+              <div class="form-group">
+                <label>价格 *</label>
+                <input
+                  type="number"
+                  v-model.number="formData.price"
+                  required
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                />
+              </div>
+              <div class="form-group">
+                <label>库存</label>
+                <input
+                  type="number"
+                  v-model.number="formData.stock"
+                  min="0"
+                  placeholder="0"
+                />
+              </div>
+            </div>
+          </template>
+
+          <template v-else>
+            <div class="specs-editor">
+              <div class="specs-header">
+                <h4 class="specs-title">规格定义</h4>
+                <button type="button" class="btn btn-sm btn-outline add-spec-btn" @click="addSpec">
+                  + 添加规格
+                </button>
+              </div>
+              <div v-for="(spec, specIdx) in formSpecs" :key="specIdx" class="spec-item">
+                <div class="spec-row">
+                  <div class="spec-name-input">
+                    <input
+                      type="text"
+                      v-model="spec.name"
+                      placeholder="规格名称（如：颜色）"
+                    />
+                  </div>
+                  <button type="button" class="btn btn-sm btn-outline add-value-btn" @click="addSpecValue(specIdx)">
+                    + 添加值
+                  </button>
+                  <button
+                    v-if="formSpecs.length > 1"
+                    type="button"
+                    class="btn btn-sm btn-danger remove-spec-btn"
+                    @click="removeSpec(specIdx)"
+                  >
+                    删除
+                  </button>
+                </div>
+                <div class="spec-values-list">
+                  <div v-for="(val, valIdx) in spec.values" :key="valIdx" class="spec-value-item">
+                    <input
+                      type="text"
+                      v-model="val.value"
+                      :placeholder="'规格值（如：红色）'"
+                    />
+                    <button
+                      v-if="spec.values.length > 1"
+                      type="button"
+                      class="btn btn-sm btn-danger remove-value-btn"
+                      @click="removeSpecValue(specIdx, valIdx)"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <button type="button" class="btn btn-sm btn-outline generate-sku-btn" @click="generateSkusFromSpecs">
+                生成 SKU 组合
+              </button>
+            </div>
+
+            <div v-if="formSkus.length > 0" class="skus-editor">
+              <h4 class="specs-title">SKU 列表（价格与库存）</h4>
+              <div class="sku-table-wrapper">
+                <table class="sku-table">
+                  <thead>
+                    <tr>
+                      <th>规格组合</th>
+                      <th>价格</th>
+                      <th>库存</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(sku, skuIdx) in formSkus" :key="skuIdx">
+                      <td class="sku-spec-cell">
+                        <span class="sku-spec-text">{{ sku.spec_text || getSkuSpecText(sku) }}</span>
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          v-model.number="sku.price"
+                          min="0"
+                          step="0.01"
+                          placeholder="0.00"
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          v-model.number="sku.stock"
+                          min="0"
+                          placeholder="0"
+                        />
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="sku-batch-actions">
+                <span class="batch-label">批量设置：</span>
+                <input
+                  type="number"
+                  v-model.number="batchPrice"
+                  min="0"
+                  step="0.01"
+                  placeholder="统一价格"
+                  class="batch-input"
+                />
+                <button type="button" class="btn btn-sm btn-outline" @click="applyBatchPrice">应用价格</button>
+                <input
+                  type="number"
+                  v-model.number="batchStock"
+                  min="0"
+                  placeholder="统一库存"
+                  class="batch-input"
+                />
+                <button type="button" class="btn btn-sm btn-outline" @click="applyBatchStock">应用库存</button>
+              </div>
+            </div>
+          </template>
+
           <div class="modal-footer">
             <button type="button" class="btn btn-outline" @click="closeModal">
               取消
@@ -678,8 +811,14 @@ const formData = reactive({
   price: '',
   category: '',
   stock: 0,
-  image: ''
+  image: '',
+  has_multi_spec: false
 });
+
+const formSpecs = ref([]);
+const formSkus = ref([]);
+const batchPrice = ref(null);
+const batchStock = ref(null);
 
 const defaultPlaceholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PHRleHQgeD0iNTAlIiB5PSI1NSUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNiIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPuWbvueJh+WKoOWvhueggTwvdGV4dD48L3N2Zz4=';
 
@@ -911,7 +1050,104 @@ const goToDetail = (id) => {
   router.push(`/product/${id}`);
 };
 
-const openModal = (product = null) => {
+const addSpec = () => {
+  formSpecs.value.push({ name: '', values: [{ value: '' }, { value: '' }] });
+};
+
+const removeSpec = (idx) => {
+  formSpecs.value.splice(idx, 1);
+};
+
+const addSpecValue = (specIdx) => {
+  formSpecs.value[specIdx].values.push({ value: '' });
+};
+
+const removeSpecValue = (specIdx, valIdx) => {
+  formSpecs.value[specIdx].values.splice(valIdx, 1);
+};
+
+const cartesianProduct = (arrays) => {
+  return arrays.reduce((acc, curr) => {
+    const result = [];
+    for (const a of acc) {
+      for (const b of curr) {
+        result.push([...a, b]);
+      }
+    }
+    return result;
+  }, [[]]);
+};
+
+const generateSkusFromSpecs = () => {
+  const cleanedSpecs = [];
+  for (const spec of formSpecs.value) {
+    if (!spec.name || !spec.name.trim()) continue;
+    const values = spec.values.filter(v => v.value && v.value.trim());
+    if (values.length === 0) continue;
+    cleanedSpecs.push({ name: spec.name.trim(), values: values.map(v => v.value.trim()) });
+  }
+
+  if (cleanedSpecs.length === 0) {
+    showToast('请先定义至少一个规格及规格值', 'error');
+    return;
+  }
+
+  const valueArrays = cleanedSpecs.map(spec =>
+    spec.values.map(val => ({ specName: spec.name, value: val }))
+  );
+
+  const combinations = cartesianProduct(valueArrays);
+  const defaultPrice = formData.price && !isNaN(formData.price) ? Number(formData.price) : 0;
+  const defaultStock = formData.stock && !isNaN(formData.stock) ? Number(formData.stock) : 0;
+
+  const existingSkus = formSkus.value;
+  const existingMap = new Map(existingSkus.map(s => [s.spec_text, s]));
+
+  formSkus.value = combinations.map(combo => {
+    const specs = {};
+    const parts = [];
+    for (const c of combo) {
+      specs[c.specName] = c.value;
+      parts.push(`${c.specName}:${c.value}`);
+    }
+    const specText = parts.join(' / ');
+    if (existingMap.has(specText)) {
+      const existing = existingMap.get(specText);
+      return { specs, spec_text: specText, price: existing.price, stock: existing.stock };
+    }
+    return { specs, spec_text: specText, price: defaultPrice, stock: defaultStock };
+  });
+
+  showToast(`已生成 ${formSkus.value.length} 个 SKU 组合`);
+};
+
+const getSkuSpecText = (sku) => {
+  if (sku.spec_text) return sku.spec_text;
+  if (!sku.specs) return '';
+  return Object.entries(sku.specs).map(([k, v]) => `${k}:${v}`).join(' / ');
+};
+
+const applyBatchPrice = () => {
+  if (batchPrice.value == null || isNaN(batchPrice.value)) {
+    showToast('请输入有效的统一价格', 'error');
+    return;
+  }
+  for (const sku of formSkus.value) {
+    sku.price = Number(batchPrice.value);
+  }
+};
+
+const applyBatchStock = () => {
+  if (batchStock.value == null || isNaN(batchStock.value)) {
+    showToast('请输入有效的统一库存', 'error');
+    return;
+  }
+  for (const sku of formSkus.value) {
+    sku.stock = Number(batchStock.value);
+  }
+};
+
+const openModal = async (product = null) => {
   editingProduct.value = product;
   if (product) {
     formData.name = product.name;
@@ -920,6 +1156,43 @@ const openModal = (product = null) => {
     formData.category = product.category;
     formData.stock = product.stock;
     formData.image = product.image;
+    formData.has_multi_spec = product.has_multi_spec === 1 || product.has_multi_spec === true;
+
+    if (formData.has_multi_spec) {
+      try {
+        const { getProduct } = await import('../api/products.js');
+        const res = await getProduct(product.id);
+        if (res.data.success) {
+          const fullProduct = res.data.data;
+          if (fullProduct.specs && fullProduct.specs.length) {
+            formSpecs.value = fullProduct.specs.map(s => ({
+              name: s.name,
+              values: (s.values || []).map(v => ({ value: v.value }))
+            }));
+          } else {
+            formSpecs.value = [{ name: '', values: [{ value: '' }, { value: '' }] }];
+          }
+          if (fullProduct.skus && fullProduct.skus.length) {
+            formSkus.value = fullProduct.skus.map(sku => ({
+              id: sku.id,
+              price: sku.price,
+              stock: sku.stock,
+              spec_text: sku.spec_text,
+              specs: sku.specs || {}
+            }));
+          } else {
+            formSkus.value = [];
+          }
+        }
+      } catch (e) {
+        console.error('加载规格失败:', e);
+        formSpecs.value = [{ name: '', values: [{ value: '' }, { value: '' }] }];
+        formSkus.value = [];
+      }
+    } else {
+      formSpecs.value = [{ name: '', values: [{ value: '' }, { value: '' }] }];
+      formSkus.value = [];
+    }
   } else {
     resetForm();
   }
@@ -939,18 +1212,71 @@ const resetForm = () => {
   formData.category = '';
   formData.stock = 0;
   formData.image = '';
+  formData.has_multi_spec = false;
+  formSpecs.value = [{ name: '', values: [{ value: '' }, { value: '' }] }];
+  formSkus.value = [];
+  batchPrice.value = null;
+  batchStock.value = null;
 };
 
 const handleSubmit = async () => {
   try {
+    const payload = { ...formData };
+
+    if (payload.has_multi_spec) {
+      const cleanedSpecs = [];
+      for (const spec of formSpecs.value) {
+        if (!spec.name || !spec.name.trim()) continue;
+        const values = spec.values.filter(v => v.value && v.value.trim());
+        if (values.length === 0) continue;
+        cleanedSpecs.push({
+          name: spec.name.trim(),
+          values: values.map(v => ({ value: v.value.trim() }))
+        });
+      }
+      payload.specs = cleanedSpecs;
+
+      if (formSkus.value.length === 0) {
+        showToast('请先生成 SKU 组合并设置价格和库存', 'error');
+        return;
+      }
+
+      const skuPriceInvalid = formSkus.value.some(s => s.price == null || isNaN(s.price) || s.price < 0);
+      const skuStockInvalid = formSkus.value.some(s => s.stock == null || isNaN(s.stock) || s.stock < 0);
+      if (skuPriceInvalid) {
+        showToast('请为所有 SKU 设置有效的价格', 'error');
+        return;
+      }
+      if (skuStockInvalid) {
+        showToast('请为所有 SKU 设置有效的库存', 'error');
+        return;
+      }
+
+      payload.skus = formSkus.value.map(s => ({
+        price: Number(s.price),
+        stock: Number(s.stock),
+        spec_text: s.spec_text || getSkuSpecText(s),
+        specs: s.specs || {}
+      }));
+
+      const minPrice = Math.min(...payload.skus.map(s => s.price));
+      const maxPrice = Math.max(...payload.skus.map(s => s.price));
+      const totalStock = payload.skus.reduce((sum, s) => sum + s.stock, 0);
+      payload.price = minPrice;
+      payload.stock = totalStock;
+      payload.min_price = minPrice;
+      payload.max_price = maxPrice;
+      payload.total_stock = totalStock;
+    }
+
     if (editingProduct.value) {
-      await updateProduct(editingProduct.value.id, { ...formData });
+      await updateProduct(editingProduct.value.id, payload);
       showToast('商品更新成功');
       closeModal();
       fetchProducts();
     } else {
       const newProductCategory = formData.category;
-      await createProduct({ ...formData });
+      await createProduct(payload);
       showToast('商品添加成功');
       closeModal();
       fetchProducts();
@@ -1983,5 +2309,226 @@ const quickAddToCart = async (product) => {
   height: 20px;
   border-width: 2px;
   margin: 0;
+}
+
+.spec-tag {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+  color: white;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(17, 153, 142, 0.35);
+}
+
+.multi-spec-toggle-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #f9f9fc;
+  border-radius: 10px;
+  border: 1px solid #e8e8f0;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.multi-spec-toggle-group label:first-child {
+  margin: 0;
+  font-weight: 600;
+}
+
+.specs-editor,
+.skus-editor {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: #f9fafc;
+  border-radius: 10px;
+  border: 1px solid #e8e8f0;
+}
+
+.specs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.specs-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #333;
+}
+
+.add-spec-btn {
+  flex: none;
+}
+
+.spec-item {
+  padding: 12px;
+  background: white;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  border: 1px solid #eee;
+}
+
+.spec-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.spec-name-input {
+  flex: 1;
+  min-width: 120px;
+}
+
+.spec-name-input input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.add-value-btn,
+.remove-spec-btn {
+  flex: none;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.spec-values-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.spec-value-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.spec-value-item input {
+  padding: 6px 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 13px;
+  width: 100px;
+}
+
+.remove-value-btn {
+  flex: none;
+  padding: 4px 8px;
+  font-size: 14px;
+  width: 26px;
+  height: 26px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.generate-sku-btn {
+  margin-top: 8px;
+  width: 100%;
+}
+
+.sku-table-wrapper {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.sku-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.sku-table thead {
+  position: sticky;
+  top: 0;
+  background: #f5f6fa;
+  z-index: 1;
+}
+
+.sku-table th,
+.sku-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid #eee;
+}
+
+.sku-table th {
+  font-weight: 600;
+  color: #555;
+  font-size: 12px;
+}
+
+.sku-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.sku-table tbody tr:hover {
+  background: #f9fafc;
+}
+
+.sku-spec-cell {
+  min-width: 160px;
+}
+
+.sku-spec-text {
+  color: #333;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.sku-table input {
+  width: 100px;
+  padding: 5px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.sku-batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 10px;
+  border-top: 1px dashed #ddd;
+}
+
+.batch-label {
+  font-size: 13px;
+  color: #666;
+  font-weight: 500;
+}
+
+.batch-input {
+  width: 90px;
+  padding: 5px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.sku-batch-actions .btn {
+  padding: 5px 10px;
+  font-size: 12px;
 }
 </style>

@@ -3,7 +3,9 @@ import {
   getCart,
   addToCart,
   updateCartItem,
+  updateCartItemByProduct,
   removeFromCart,
+  removeFromCartByProduct,
   clearCart,
   mergeCart
 } from '../api/cart.js';
@@ -63,6 +65,13 @@ const updateCartState = (data) => {
   if (data.totalPrice !== undefined) cartTotal.value = data.totalPrice;
 };
 
+const localItemMatch = (item, productId, skuId) => {
+  if (item.product_id !== productId) return false;
+  if (!skuId && !item.sku_id) return true;
+  if (item.sku_id == skuId) return true;
+  return false;
+};
+
 const enrichLocalCartItems = async (items) => {
   const { getProduct } = await import('../api/products.js');
   const enriched = [];
@@ -72,17 +81,37 @@ const enrichLocalCartItems = async (items) => {
       const res = await getProduct(item.product_id);
       if (res.data.success) {
         const product = res.data.data;
-        const quantity = Math.min(item.quantity, product.stock);
+        let effectivePrice = product.price;
+        let effectiveStock = product.stock;
+        let skuName = '';
+
+        if (item.sku_id && product.skus && product.skus.length) {
+          const sku = product.skus.find(s => s.id == item.sku_id);
+          if (sku) {
+            effectivePrice = sku.price;
+            effectiveStock = sku.stock;
+            skuName = sku.spec_text || '';
+          } else {
+            continue;
+          }
+        } else if (product.has_multi_spec && product.min_price !== undefined) {
+          effectivePrice = product.min_price;
+        }
+
+        const quantity = Math.min(item.quantity, effectiveStock);
         if (quantity > 0) {
           enriched.push({
             ...item,
-            id: `local_${item.product_id}`,
+            id: item.sku_id ? `local_${item.product_id}_${item.sku_id}` : `local_${item.product_id}`,
+            sku_id: item.sku_id || null,
+            sku_name: skuName,
             name: product.name,
             description: product.description,
-            price: product.price,
+            price: effectivePrice,
             category: product.category,
-            stock: product.stock,
-            image: product.image
+            stock: effectiveStock,
+            image: product.image,
+            has_multi_spec: product.has_multi_spec
           });
         }
       }
@@ -176,6 +205,7 @@ export function useCart() {
         cartTotal.value = total;
         saveLocalCart(enrichedItems.map(item => ({
           product_id: item.product_id,
+          sku_id: item.sku_id || null,
           quantity: item.quantity
         })));
       } catch (err) {
@@ -195,10 +225,10 @@ export function useCart() {
     }
   };
 
-  const handleAddToCart = async (productId, quantity = 1) => {
+  const handleAddToCart = async (productId, quantity = 1, skuId = null) => {
     try {
       if (isAuthenticated.value) {
-        const res = await addToCart(productId, quantity);
+        const res = await addToCart(productId, quantity, skuId);
         if (res.data.success) {
           updateCartState(res.data.data);
           return { success: true, message: res.data.message };
@@ -206,7 +236,7 @@ export function useCart() {
         return { success: false, message: res.data.message };
       } else {
         const localItems = getLocalCart();
-        const existingIndex = localItems.findIndex(item => item.product_id === productId);
+        const existingIndex = localItems.findIndex(item => localItemMatch(item, productId, skuId));
 
         const { getProduct } = await import('../api/products.js');
         const productRes = await getProduct(productId);
@@ -215,17 +245,26 @@ export function useCart() {
         }
         const product = productRes.data.data;
 
+        let effectiveStock = product.stock;
+        if (skuId && product.skus && product.skus.length) {
+          const sku = product.skus.find(s => s.id == skuId);
+          if (!sku) {
+            return { success: false, message: '规格不存在' };
+          }
+          effectiveStock = sku.stock;
+        }
+
         if (existingIndex >= 0) {
           const newQuantity = localItems[existingIndex].quantity + quantity;
-          if (newQuantity > product.stock) {
-            return { success: false, message: `库存不足，最多可添加 ${product.stock} 件` };
+          if (newQuantity > effectiveStock) {
+            return { success: false, message: `库存不足，最多可添加 ${effectiveStock} 件` };
           }
           localItems[existingIndex].quantity = newQuantity;
         } else {
-          if (quantity > product.stock) {
-            return { success: false, message: `库存不足，最多可添加 ${product.stock} 件` };
+          if (quantity > effectiveStock) {
+            return { success: false, message: `库存不足，最多可添加 ${effectiveStock} 件` };
           }
-          localItems.push({ product_id: productId, quantity });
+          localItems.push({ product_id: productId, sku_id: skuId || null, quantity });
         }
 
         saveLocalCart(localItems);
@@ -240,13 +279,20 @@ export function useCart() {
     }
   };
 
-  const handleUpdateQuantity = async (productId, quantity) => {
+  const handleUpdateQuantity = async (itemId, quantity, productId = null, skuId = null) => {
     if (quantity < 1) return { success: false, message: '数量不能小于1' };
 
-    updatingItemId.value = productId;
+    updatingItemId.value = itemId;
     try {
       if (isAuthenticated.value) {
-        const res = await updateCartItem(productId, quantity);
+        let res;
+        if (productId === null && typeof itemId === 'number') {
+          res = await updateCartItem(itemId, quantity);
+        } else if (productId !== null) {
+          res = await updateCartItemByProduct(productId, quantity, skuId);
+        } else {
+          res = await updateCartItem(itemId, quantity);
+        }
         if (res.data.success) {
           updateCartState(res.data.data);
           return { success: true };
@@ -254,18 +300,27 @@ export function useCart() {
         return { success: false, message: res.data.message };
       } else {
         const localItems = getLocalCart();
-        const existingIndex = localItems.findIndex(item => item.product_id === productId);
+        const existingIndex = localItems.findIndex(item => {
+          const localId = item.sku_id ? `local_${item.product_id}_${item.sku_id}` : `local_${item.product_id}`;
+          return localId === itemId || (productId !== null && localItemMatch(item, productId, skuId));
+        });
 
         if (existingIndex < 0) {
           return { success: false, message: '购物车中不存在该商品' };
         }
 
         const { getProduct } = await import('../api/products.js');
-        const productRes = await getProduct(productId);
+        const currentItem = localItems[existingIndex];
+        const productRes = await getProduct(currentItem.product_id);
         if (productRes.data.success) {
           const product = productRes.data.data;
-          if (quantity > product.stock) {
-            return { success: false, message: `库存不足，最多可添加 ${product.stock} 件` };
+          let effectiveStock = product.stock;
+          if (currentItem.sku_id && product.skus && product.skus.length) {
+            const sku = product.skus.find(s => s.id == currentItem.sku_id);
+            if (sku) effectiveStock = sku.stock;
+          }
+          if (quantity > effectiveStock) {
+            return { success: false, message: `库存不足，最多可添加 ${effectiveStock} 件` };
           }
         }
 
@@ -284,11 +339,18 @@ export function useCart() {
     }
   };
 
-  const handleRemoveFromCart = async (productId) => {
-    updatingItemId.value = productId;
+  const handleRemoveFromCart = async (itemId, productId = null, skuId = null) => {
+    updatingItemId.value = itemId;
     try {
       if (isAuthenticated.value) {
-        const res = await removeFromCart(productId);
+        let res;
+        if (productId === null && typeof itemId === 'number') {
+          res = await removeFromCart(itemId);
+        } else if (productId !== null) {
+          res = await removeFromCartByProduct(productId, skuId);
+        } else {
+          res = await removeFromCart(itemId);
+        }
         if (res.data.success) {
           updateCartState(res.data.data);
           return { success: true, message: res.data.message };
@@ -296,7 +358,12 @@ export function useCart() {
         return { success: false, message: res.data.message };
       } else {
         const localItems = getLocalCart();
-        const filtered = localItems.filter(item => item.product_id !== productId);
+        const filtered = localItems.filter(item => {
+          const localId = item.sku_id ? `local_${item.product_id}_${item.sku_id}` : `local_${item.product_id}`;
+          const matchesId = localId === itemId;
+          const matchesProduct = productId !== null && localItemMatch(item, productId, skuId);
+          return !(matchesId || matchesProduct);
+        });
         saveLocalCart(filtered);
         await loadCart();
         return { success: true, message: '已从购物车移除' };

@@ -17,6 +17,10 @@ export const getProduct = (id) => {
   return api.get(`/products/${id}`);
 };
 
+export const getProductSkus = (id) => {
+  return api.get(`/products/${id}/skus`);
+};
+
 export const createProduct = (data) => {
   return api.post('/products', data);
 };

@@ -1,6 +1,6 @@
-const { createClient } = require('@libsql/client');
-const config = require('../config');
-const bcrypt = require('bcryptjs');
+import { createClient } from '@libsql/client/node';
+import config from '../config.js';
+import bcrypt from 'bcryptjs';
 
 const dbPath = config.database.path;
 const JWT_SECRET = config.jwt?.secret || 'your-secret-key-change-in-production';
@@ -10,6 +10,70 @@ const db = createClient({
 });
 
 const categories = ['电子产品', '服装', '食品', '家居', '图书', '运动'];
+
+async function addColumnIfNotExists(tableName, columnName, columnDef) {
+  try {
+    const columns = await allQuery(`PRAGMA table_info(${tableName})`);
+    const exists = columns.some(col => col.name === columnName);
+    if (!exists) {
+      await db.execute(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDef}`);
+    }
+  } catch (err) {
+    console.warn(`添加列 ${tableName}.${columnName} 失败:`, err.message);
+  }
+}
+
+async function rebuildCartsTableForUniqueConstraint() {
+  try {
+    const existing = await allQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='carts'");
+    if (existing.length === 0) return;
+
+    const indexes = await allQuery("PRAGMA index_list('carts')");
+    const uniqueIdx = indexes.find(i => i.origin === 'u');
+    const columns = await allQuery("PRAGMA table_info(carts)");
+    const colNames = columns.map(c => c.name).join(',');
+
+    const needsRebuild = colNames.includes('sku_id') && (!uniqueIdx || !colNames.includes('sku_name'));
+    if (!needsRebuild) return;
+
+    console.log('正在重建 carts 表以支持多 SKU 唯一约束...');
+
+    await db.execute('BEGIN');
+    const rows = await allQuery('SELECT * FROM carts');
+    await db.execute("ALTER TABLE carts RENAME TO carts_old");
+
+    await db.execute(`
+      CREATE TABLE carts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        product_id INTEGER NOT NULL,
+        sku_id INTEGER,
+        sku_name TEXT,
+        quantity INTEGER NOT NULL DEFAULT 1 CHECK (quantity > 0),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+        FOREIGN KEY (sku_id) REFERENCES product_skus(id) ON DELETE SET NULL,
+        UNIQUE(user_id, product_id, sku_id)
+      )
+    `);
+
+    for (const row of rows) {
+      const keys = Object.keys(row).join(',');
+      const placeholders = Object.keys(row).map(() => '?').join(',');
+      const values = Object.values(row);
+      await db.execute(`INSERT INTO carts (${keys}) VALUES (${placeholders})`, values);
+    }
+
+    await db.execute("DROP TABLE IF EXISTS carts_old");
+    await db.execute('COMMIT');
+    console.log('carts 表重建完成');
+  } catch (err) {
+    try { await db.execute('ROLLBACK'); } catch (e) {}
+    console.warn('重建 carts 表失败（功能不受影响）:', err.message);
+  }
+}
 
 async function initDatabase() {
   await db.execute(`
@@ -23,6 +87,48 @@ async function initDatabase() {
       image TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await addColumnIfNotExists('products', 'has_multi_spec', 'INTEGER DEFAULT 0');
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS product_specs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      sort_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+    )
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS product_spec_values (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      spec_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      value TEXT NOT NULL,
+      sort_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (spec_id) REFERENCES product_specs(id) ON DELETE CASCADE,
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+    )
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS product_skus (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL,
+      sku_code TEXT,
+      price REAL NOT NULL,
+      stock INTEGER DEFAULT 0,
+      image TEXT,
+      spec_value_ids TEXT,
+      spec_text TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
     )
   `);
 
@@ -54,19 +160,25 @@ async function initDatabase() {
     )
   `);
 
+  await addColumnIfNotExists('carts', 'sku_id', 'INTEGER');
+  await addColumnIfNotExists('carts', 'sku_name', 'TEXT');
   await db.execute(`
     CREATE TABLE IF NOT EXISTS carts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
       product_id INTEGER NOT NULL,
+      sku_id INTEGER,
+      sku_name TEXT,
       quantity INTEGER NOT NULL DEFAULT 1 CHECK (quantity > 0),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
-      UNIQUE(user_id, product_id)
+      FOREIGN KEY (sku_id) REFERENCES product_skus(id) ON DELETE SET NULL,
+      UNIQUE(user_id, product_id, sku_id)
     )
   `);
+  await rebuildCartsTableForUniqueConstraint();
 
   await db.execute(`
     CREATE TABLE IF NOT EXISTS orders (
@@ -84,11 +196,15 @@ async function initDatabase() {
     )
   `);
 
+  await addColumnIfNotExists('order_items', 'sku_id', 'INTEGER');
+  await addColumnIfNotExists('order_items', 'sku_name', 'TEXT');
   await db.execute(`
     CREATE TABLE IF NOT EXISTS order_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_id INTEGER NOT NULL,
       product_id INTEGER NOT NULL,
+      sku_id INTEGER,
+      sku_name TEXT,
       product_name TEXT NOT NULL,
       product_price REAL NOT NULL,
       quantity INTEGER NOT NULL,
@@ -96,7 +212,8 @@ async function initDatabase() {
       product_image TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL,
+      FOREIGN KEY (sku_id) REFERENCES product_skus(id) ON DELETE SET NULL
     )
   `);
 
@@ -309,6 +426,84 @@ async function initDatabase() {
     }
     console.log('已插入示例商品预警阈值配置');
   }
+
+  const skuCountResult = await db.execute('SELECT COUNT(*) as count FROM product_skus');
+  if (skuCountResult.rows[0].count === 0) {
+    const sampleSpecProducts = [
+      { product_id: 4, name: '运动T恤', specs: [
+        { name: '颜色', values: ['白色', '黑色', '蓝色'] },
+        { name: '尺码', values: ['S', 'M', 'L', 'XL'] }
+      ], basePrice: 99 },
+      { product_id: 5, name: '牛仔裤', specs: [
+        { name: '颜色', values: ['深蓝', '浅蓝', '黑色'] },
+        { name: '尺码', values: ['28', '30', '32', '34', '36'] }
+      ], basePrice: 299 },
+      { product_id: 6, name: '运动鞋', specs: [
+        { name: '颜色', values: ['白色', '黑色', '红色'] },
+        { name: '尺码', values: ['39', '40', '41', '42', '43', '44'] }
+      ], basePrice: 599 },
+      { product_id: 15, name: '瑜伽垫', specs: [
+        { name: '颜色', values: ['紫色', '蓝色', '粉色'] },
+        { name: '厚度', values: ['6mm', '8mm', '10mm'] }
+      ], basePrice: 89 },
+      { product_id: 16, name: '哑铃套装', specs: [
+        { name: '重量', values: ['10kg', '20kg', '30kg'] }
+      ], basePrice: 399 }
+    ];
+
+    for (const sp of sampleSpecProducts) {
+      await runQuery('UPDATE products SET has_multi_spec = 1 WHERE id = ?', [sp.product_id]);
+
+      const specIds = [];
+      for (let si = 0; si < sp.specs.length; si++) {
+        const spec = sp.specs[si];
+        const specResult = await runQuery(
+          'INSERT INTO product_specs (product_id, name, sort_order) VALUES (?, ?, ?)',
+          [sp.product_id, spec.name, si]
+        );
+        const specId = specResult.lastID;
+        const valueIds = [];
+        for (let vi = 0; vi < spec.values.length; vi++) {
+          const valResult = await runQuery(
+            'INSERT INTO product_spec_values (spec_id, product_id, value, sort_order) VALUES (?, ?, ?, ?)',
+            [specId, sp.product_id, spec.values[vi], vi]
+          );
+          valueIds.push(valResult.lastID);
+        }
+        specIds.push({ specId, name: spec.name, values: spec.values, valueIds });
+      }
+
+      const generateCombinations = (specs, index = 0, current = []) => {
+        if (index >= specs.length) return [current];
+        const result = [];
+        for (let i = 0; i < specs[index].values.length; i++) {
+          result.push(...generateCombinations(specs, index + 1,
+            [...current, { value: specs[index].values[i], valueId: specs[index].valueIds[i], specName: specs[index].name }]
+          ));
+        }
+        return result;
+      };
+
+      const combinations = generateCombinations(specIds);
+      let skuIndex = 0;
+      for (const combo of combinations) {
+        const skuCode = `SKU-${sp.product_id}-${String(skuIndex).padStart(3, '0')}`;
+        const specValueIds = combo.map(c => c.valueId).sort((a, b) => a - b).join(',');
+        const specText = combo.map(c => `${c.specName}:${c.value}`).join(';');
+        const priceVariation = Math.floor(skuIndex / 2) * 10;
+        const skuPrice = sp.basePrice + priceVariation;
+        const skuStock = Math.floor(Math.random() * 80) + 20;
+        await runQuery(
+          `INSERT INTO product_skus (product_id, sku_code, price, stock, spec_value_ids, spec_text)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [sp.product_id, skuCode, skuPrice, skuStock, specValueIds, specText]
+        );
+        skuIndex++;
+      }
+    }
+
+    console.log('已插入示例商品规格数据');
+  }
 }
 
 async function runQuery(sql, args = []) {
@@ -334,4 +529,63 @@ const dbReady = initDatabase().catch(err => {
   throw err;
 });
 
-module.exports = { db, categories, runQuery, getQuery, allQuery, dbReady, dbPath, JWT_SECRET };
+async function getProductSpecs(productId) {
+  const specs = await allQuery(`
+    SELECT * FROM product_specs WHERE product_id = ? ORDER BY sort_order, id
+  `, [productId]);
+
+  for (const spec of specs) {
+    spec.values = await allQuery(`
+      SELECT * FROM product_spec_values WHERE spec_id = ? ORDER BY sort_order, id
+    `, [spec.id]);
+  }
+  return specs;
+}
+
+async function getProductSkus(productId) {
+  return await allQuery(`
+    SELECT * FROM product_skus WHERE product_id = ? ORDER BY id
+  `, [productId]);
+}
+
+async function getProductStock(productId, skuId = null) {
+  if (skuId) {
+    const sku = await getQuery('SELECT stock FROM product_skus WHERE id = ? AND product_id = ?', [skuId, productId]);
+    return sku ? sku.stock : 0;
+  }
+  const product = await getQuery('SELECT stock, has_multi_spec FROM products WHERE id = ?', [productId]);
+  if (!product) return 0;
+  if (product.has_multi_spec) {
+    const skus = await allQuery('SELECT COALESCE(SUM(stock), 0) as total FROM product_skus WHERE product_id = ?', [productId]);
+    return skus[0]?.total || 0;
+  }
+  return product.stock;
+}
+
+async function getProductPriceRange(productId) {
+  const product = await getQuery('SELECT price, has_multi_spec FROM products WHERE id = ?', [productId]);
+  if (!product) return { min_price: 0, max_price: 0 };
+  if (!product.has_multi_spec) {
+    return { min_price: product.price, max_price: product.price };
+  }
+  const result = await getQuery(`
+    SELECT COALESCE(MIN(price), 0) as min_price, COALESCE(MAX(price), 0) as max_price
+    FROM product_skus WHERE product_id = ?
+  `, [productId]);
+  return result || { min_price: product.price, max_price: product.price };
+}
+
+export {
+  db,
+  categories,
+  runQuery,
+  getQuery,
+  allQuery,
+  dbReady,
+  dbPath,
+  JWT_SECRET,
+  getProductSpecs,
+  getProductSkus,
+  getProductStock,
+  getProductPriceRange
+};

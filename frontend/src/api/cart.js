@@ -4,16 +4,30 @@ export const getCart = () => {
   return api.get('/cart');
 };
 
-export const addToCart = (productId, quantity = 1) => {
-  return api.post('/cart/add', { product_id: productId, quantity });
+export const addToCart = (productId, quantity = 1, skuId = null) => {
+  const data = { product_id: productId, quantity };
+  if (skuId) data.sku_id = skuId;
+  return api.post('/cart/add', data);
 };
 
-export const updateCartItem = (productId, quantity) => {
-  return api.put(`/cart/update/${productId}`, { quantity });
+export const updateCartItem = (cartItemId, quantity) => {
+  return api.put(`/cart/update/${cartItemId}`, { quantity });
 };
 
-export const removeFromCart = (productId) => {
-  return api.delete(`/cart/remove/${productId}`);
+export const updateCartItemByProduct = (productId, quantity, skuId = null) => {
+  const data = { quantity };
+  if (skuId) data.sku_id = skuId;
+  return api.put(`/cart/update-product/${productId}`, data);
+};
+
+export const removeFromCart = (cartItemId) => {
+  return api.delete(`/cart/remove/${cartItemId}`);
+};
+
+export const removeFromCartByProduct = (productId, skuId = null) => {
+  const data = {};
+  if (skuId) data.sku_id = skuId;
+  return api.delete(`/cart/remove-product/${productId}`, { data });
 };
 
 export const clearCart = () => {

@@ -37,32 +37,33 @@
                   v-for="item in cartItems"
                   :key="item.id"
                   class="cart-item"
-                  :class="{ 'item-updating': isItemUpdating(item.product_id) }"
+                  :class="{ 'item-updating': isItemUpdating(item.id) }"
                 >
                   <img
                     :src="item.image || defaultPlaceholder"
                     :alt="item.name"
                     class="cart-item-image"
-                    :class="{ 'img-loading': isItemUpdating(item.product_id) }"
+                    :class="{ 'img-loading': isItemUpdating(item.id) }"
                     @error="handleImageError($event)"
                   />
                   <div class="cart-item-info">
                     <h3 class="cart-item-name">{{ item.name }}</h3>
+                    <p v-if="item.sku_name" class="cart-item-sku">{{ item.sku_name }}</p>
                     <p class="cart-item-price">¥{{ item.price.toFixed(2) }}</p>
                     <div class="cart-item-actions">
                       <div class="quantity-controls">
                         <button
                           class="qty-btn"
-                          :disabled="isItemUpdating(item.product_id)"
+                          :disabled="isItemUpdating(item.id)"
                           @click="decreaseQuantity(item)"
                         >
-                          <span v-if="isItemUpdating(item.product_id)" class="mini-spinner"></span>
+                          <span v-if="isItemUpdating(item.id)" class="mini-spinner"></span>
                           <span v-else>−</span>
                         </button>
                         <span class="qty-value">{{ item.quantity }}</span>
                         <button
                           class="qty-btn"
-                          :disabled="isItemUpdating(item.product_id) || item.quantity >= item.stock"
+                          :disabled="isItemUpdating(item.id) || item.quantity >= item.stock"
                           @click="increaseQuantity(item)"
                         >
                           +
@@ -70,10 +71,10 @@
                       </div>
                       <button
                         class="btn btn-outline btn-xs"
-                        :disabled="isItemUpdating(item.product_id)"
+                        :disabled="isItemUpdating(item.id)"
                         @click="removeItem(item)"
                       >
-                        {{ isItemUpdating(item.product_id) ? '处理中...' : '删除' }}
+                        {{ isItemUpdating(item.id) ? '处理中...' : '删除' }}
                       </button>
                     </div>
                   </div>
@@ -147,8 +148,8 @@ const {
 
 const defaultPlaceholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PHRleHQgeD0iNTAlIiB5PSI1NSUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNiIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPuWbvueJh+WKoOWvhueggTwvdGV4dD48L3N2Zz4=';
 
-const isItemUpdating = (productId) => {
-  return updatingItemId.value === productId;
+const isItemUpdating = (id) => {
+  return updatingItemId.value === id;
 };
 
 const handleClose = () => {
@@ -161,29 +162,29 @@ const handleImageError = (event) => {
 };
 
 const decreaseQuantity = async (item) => {
-  if (isItemUpdating(item.product_id)) return;
+  if (isItemUpdating(item.id)) return;
   if (item.quantity <= 1) {
     removeItem(item);
     return;
   }
-  const result = await handleUpdateQuantity(item.product_id, item.quantity - 1);
+  const result = await handleUpdateQuantity(item.id, item.quantity - 1, item.product_id, item.sku_id);
   if (!result.success) {
     alert(result.message);
   }
 };
 
 const increaseQuantity = async (item) => {
-  if (isItemUpdating(item.product_id)) return;
-  const result = await handleUpdateQuantity(item.product_id, item.quantity + 1);
+  if (isItemUpdating(item.id)) return;
+  const result = await handleUpdateQuantity(item.id, item.quantity + 1, item.product_id, item.sku_id);
   if (!result.success) {
     alert(result.message);
   }
 };
 
 const removeItem = async (item) => {
-  if (isItemUpdating(item.product_id)) return;
-  if (!confirm(`确定要删除 "${item.name}" 吗？`)) return;
-  const result = await handleRemoveFromCart(item.product_id);
+  if (isItemUpdating(item.id)) return;
+  if (!confirm(`确定要删除 "${item.name}"${item.sku_name ? ' (' + item.sku_name + ')' : ''} 吗？`)) return;
+  const result = await handleRemoveFromCart(item.id, item.product_id, item.sku_id);
   if (!result.success) {
     alert(result.message);
   }
@@ -367,6 +368,17 @@ const handleCheckout = () => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.cart-item-sku {
+  margin: -4px 0 0;
+  font-size: 12px;
+  color: #888;
+  background: #f0f0f0;
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  align-self: flex-start;
 }
 
 .cart-item-price {
