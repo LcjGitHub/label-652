@@ -23,7 +23,24 @@
             </div>
 
             <div class="drawer-body">
-              <div v-if="isLoading && alertProducts.length === 0" class="loading">
+              <div v-if="!isAuthenticated" class="login-prompt">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"></path>
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
+                <h3 class="login-title">登录后查看详情</h3>
+                <p class="login-desc">您需要登录后才能查看预警商品详情、生成补货建议单等操作</p>
+                <div class="login-actions">
+                  <button class="btn btn-outline btn-sm" @click="handleClose">
+                    取消
+                  </button>
+                  <button class="btn btn-primary btn-sm" @click="goToLogin">
+                    立即登录
+                  </button>
+                </div>
+              </div>
+
+              <div v-else-if="isLoading && alertProducts.length === 0" class="loading">
                 <div class="spinner"></div>
                 <p>加载中...</p>
               </div>
@@ -67,7 +84,7 @@
                     v-for="product in alertProducts"
                     :key="product.id"
                     class="alert-product-item"
-                    :class="{ 'severity-high': product.stock < product.alert_threshold * 0.5 }"
+                    :class="{ 'severity-high': product.stock <= product.alert_threshold * 0.5 }"
                   >
                     <label class="checkbox-wrapper">
                       <input 
@@ -104,7 +121,7 @@
               </div>
             </div>
 
-            <div v-if="alertProducts.length > 0" class="drawer-footer">
+            <div v-if="isAuthenticated && alertProducts.length > 0" class="drawer-footer">
               <div class="footer-summary">
                 <div class="summary-row">
                   <span>共 {{ alertProducts.length }} 种预警商品</span>
@@ -192,7 +209,9 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { useStockAlert } from '../composables/useStockAlert.js';
+import { useAuth } from '../composables/useAuth.js';
 
 const props = defineProps({
   show: {
@@ -202,6 +221,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['close']);
+const router = useRouter();
+const { isAuthenticated } = useAuth();
 
 const {
   alertProducts,
@@ -248,6 +269,11 @@ watch(alertProducts, (newVal) => {
 const handleClose = () => {
   closeAlertDrawer();
   emit('close');
+};
+
+const goToLogin = () => {
+  handleClose();
+  router.push('/login');
 };
 
 const handleImageError = (event) => {
@@ -432,6 +458,39 @@ const handleSendEmail = async () => {
 .empty-alert p {
   margin-bottom: 20px;
   font-size: 15px;
+}
+
+.login-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 24px;
+  text-align: center;
+}
+
+.login-prompt svg {
+  color: #667eea;
+  margin-bottom: 20px;
+}
+
+.login-title {
+  margin: 0 0 12px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+}
+
+.login-desc {
+  margin: 0 0 24px;
+  font-size: 14px;
+  color: #888;
+  line-height: 1.6;
+}
+
+.login-actions {
+  display: flex;
+  gap: 12px;
 }
 
 .spinner {

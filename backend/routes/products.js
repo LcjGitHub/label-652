@@ -354,6 +354,7 @@ router.post('/import', authMiddleware, upload.single('file'), async (ctx) => {
 
 router.get('/:id', async (ctx) => {
   const { id } = ctx.params;
+  const globalConfig = await getGlobalConfig();
   const product = await getQuery(`
     SELECT 
       p.*,
@@ -362,7 +363,7 @@ router.get('/:id', async (ctx) => {
     FROM products p
     LEFT JOIN stock_alert_config sac ON p.id = sac.product_id
     WHERE p.id = ?
-  `, [20, 1, id]);
+  `, [globalConfig.default_threshold, globalConfig.enabled, id]);
 
   if (!product) {
     ctx.status = 404;
@@ -370,7 +371,6 @@ router.get('/:id', async (ctx) => {
     return;
   }
 
-  const globalConfig = await getGlobalConfig();
   const alertEnabled = product.alert_enabled === 1 && globalConfig.enabled === 1;
   const isAlert = alertEnabled && product.stock < product.alert_threshold;
 

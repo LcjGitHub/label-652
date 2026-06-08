@@ -14,6 +14,9 @@
             <button class="btn btn-outline" @click="handleOpenImportModal">
               导入
             </button>
+            <button class="btn btn-outline" @click="handleOpenAlertConfig">
+              ⚙ 预警设置
+            </button>
             <button class="btn btn-primary" @click="handleAddProduct">
               + 添加商品
             </button>
@@ -22,6 +25,7 @@
             class="alert-icon-btn" 
             @click="toggleAlertDrawer" 
             :title="'库存预警 (' + alertCount + ')'"
+            :aria-label="'库存预警，当前有 ' + alertCount + ' 个预警商品'"
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
@@ -111,6 +115,13 @@ const handleExport = () => {
 const handleOpenImportModal = () => {
   if (route.path === '/') {
     const event = new CustomEvent('open-import-modal');
+    window.dispatchEvent(event);
+  }
+};
+
+const handleOpenAlertConfig = () => {
+  if (route.path === '/') {
+    const event = new CustomEvent('open-alert-config-modal');
     window.dispatchEvent(event);
   }
 };

@@ -36,7 +36,7 @@
         v-for="product in products"
         :key="product.id"
         class="product-card"
-        :class="{ 'product-card-alert': product.is_alert, 'product-card-severe': product.is_alert && product.stock < product.alert_threshold * 0.5 }"
+        :class="{ 'product-card-alert': product.is_alert, 'product-card-severe': product.is_alert && product.stock <= product.alert_threshold * 0.5 }"
         @click="goToDetail(product.id)"
       >
         <div class="product-image">
@@ -59,7 +59,7 @@
           <p class="product-desc">{{ product.description }}</p>
           <div class="product-footer">
             <span class="price">¥{{ product.price.toFixed(2) }}</span>
-            <span class="stock" :class="{ 'stock-alert': product.is_alert, 'stock-severe': product.is_alert && product.stock < product.alert_threshold * 0.5 }">
+            <span class="stock" :class="{ 'stock-alert': product.is_alert, 'stock-severe': product.is_alert && product.stock <= product.alert_threshold * 0.5 }">
               库存: {{ product.stock }}
               <span v-if="product.is_alert" class="threshold-info">/阈值{{ product.alert_threshold }}</span>
             </span>
@@ -327,11 +327,119 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showAlertConfigModal" class="modal-overlay" @click.self="closeAlertConfigModal">
+      <div class="modal alert-config-modal">
+        <div class="modal-header">
+          <h2>库存预警阈值配置</h2>
+          <button class="close-btn" @click="closeAlertConfigModal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="config-section">
+            <h3 class="section-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+              </svg>
+              全局默认配置
+            </h3>
+            <div class="global-config-card">
+              <div class="form-row">
+                <div class="form-group">
+                  <label>全局预警开关</label>
+                  <label class="switch">
+                    <input type="checkbox" v-model="alertGlobalConfig.enabled" />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <div class="form-group">
+                  <label>默认预警阈值</label>
+                  <input 
+                    type="number" 
+                    v-model.number="alertGlobalConfig.default_threshold" 
+                    min="0"
+                    placeholder="请输入默认阈值"
+                  />
+                  <span class="help-text">当商品库存低于此值时触发预警</span>
+                </div>
+              </div>
+              <div class="form-actions">
+                <button class="btn btn-primary btn-sm" @click="saveGlobalConfig" :disabled="savingGlobalConfig">
+                  {{ savingGlobalConfig ? '保存中...' : '保存全局配置' }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="config-section">
+            <h3 class="section-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 7h-3V3a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v4H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"></path>
+                <polyline points="9 11 12 14 22 4"></polyline>
+              </svg>
+              单个商品配置
+              <span class="section-subtitle">（商品配置优先级高于全局配置）</span>
+            </h3>
+            <div class="product-config-header">
+              <input 
+                type="text" 
+                v-model="productConfigSearch" 
+                placeholder="搜索商品名称..."
+                class="search-input"
+              />
+            </div>
+            <div class="product-config-list">
+              <div 
+                v-for="product in filteredProductsForConfig" 
+                :key="product.id" 
+                class="product-config-item"
+              >
+                <div class="product-config-info">
+                  <span class="product-config-name">{{ product.name }}</span>
+                  <span class="product-config-stock" :class="{ 'stock-alert': product.is_alert }">
+                    库存: {{ product.stock }}
+                  </span>
+                </div>
+                <div class="product-config-actions">
+                  <label class="use-global-label">
+                    <input 
+                      type="checkbox" 
+                      v-model="product.useGlobal" 
+                      @change="handleToggleUseGlobal(product)"
+                    />
+                    使用全局
+                  </label>
+                  <input 
+                    type="number" 
+                    v-model.number="product.threshold" 
+                    :disabled="product.useGlobal || product.saving"
+                    min="0"
+                    class="threshold-input"
+                    placeholder="阈值"
+                  />
+                  <button 
+                    class="btn btn-primary btn-sm" 
+                    :disabled="product.useGlobal || product.saving"
+                    @click="saveProductConfig(product)"
+                  >
+                    {{ product.saving ? '...' : '保存' }}
+                  </button>
+                </div>
+              </div>
+              <div v-if="loadingProductConfigs" class="config-loading">
+                <div class="spinner small"></div>
+                <span>加载中...</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   getProducts,
@@ -343,12 +451,21 @@ import {
   downloadTemplate,
   importProducts
 } from '../api/products.js';
+import {
+  getGlobalConfig as getGlobalAlertConfig,
+  updateGlobalConfig as updateGlobalAlertConfig,
+  getProductConfig as getProductAlertConfigs,
+  updateProductConfig as updateProductAlertConfig,
+  deleteProductConfig as deleteProductAlertConfig
+} from '../api/stockAlerts.js';
 import { useAuth } from '../composables/useAuth.js';
 import { useCart } from '../composables/useCart.js';
+import { useStockAlert } from '../composables/useStockAlert.js';
 
 const router = useRouter();
 const { isAuthenticated } = useAuth();
 const { handleAddToCart, openCartDrawer } = useCart();
+const { fetchAlertCount } = useStockAlert();
 
 const categories = ref([]);
 const products = ref([]);
@@ -538,12 +655,14 @@ onMounted(() => {
   window.addEventListener('open-add-modal', handleOpenAddModal);
   window.addEventListener('open-import-modal', handleOpenImportModal);
   window.addEventListener('export-products', handleExportProducts);
+  window.addEventListener('open-alert-config-modal', openAlertConfigModal);
 });
 
 onUnmounted(() => {
   window.removeEventListener('open-add-modal', handleOpenAddModal);
   window.removeEventListener('open-import-modal', handleOpenImportModal);
   window.removeEventListener('export-products', handleExportProducts);
+  window.removeEventListener('open-alert-config-modal', openAlertConfigModal);
 });
 
 const pagination = reactive({
@@ -580,6 +699,132 @@ const confirmDialog = reactive({
 });
 
 let pendingDeleteId = null;
+
+const showAlertConfigModal = ref(false);
+const savingGlobalConfig = ref(false);
+const loadingProductConfigs = ref(false);
+const productConfigSearch = ref('');
+const alertGlobalConfig = reactive({
+  enabled: true,
+  default_threshold: 20
+});
+const productConfigs = ref([]);
+
+const filteredProductsForConfig = computed(() => {
+  if (!productConfigSearch.value) {
+    return productConfigs.value;
+  }
+  const query = productConfigSearch.value.toLowerCase();
+  return productConfigs.value.filter(p => 
+    p.name.toLowerCase().includes(query)
+  );
+});
+
+const openAlertConfigModal = async () => {
+  showAlertConfigModal.value = true;
+  await loadAlertConfigData();
+};
+
+const closeAlertConfigModal = () => {
+  showAlertConfigModal.value = false;
+};
+
+const loadAlertConfigData = async () => {
+  try {
+    const [globalRes, productsRes] = await Promise.all([
+      getGlobalAlertConfig(),
+      getProductAlertConfigs()
+    ]);
+    
+    if (globalRes.data.success) {
+      alertGlobalConfig.enabled = globalRes.data.data.enabled;
+      alertGlobalConfig.default_threshold = globalRes.data.data.default_threshold;
+    }
+    
+    if (productsRes.data.success) {
+      const customConfigs = productsRes.data.data || [];
+      const customConfigMap = new Map(customConfigs.map(c => [c.product_id, c]));
+      
+      productConfigs.value = products.value.map(product => {
+        const custom = customConfigMap.get(product.id);
+        return {
+          id: product.id,
+          name: product.name,
+          stock: product.stock,
+          is_alert: product.is_alert,
+          threshold: custom ? custom.threshold : alertGlobalConfig.default_threshold,
+          useGlobal: !custom,
+          saving: false
+        };
+      });
+    }
+  } catch (err) {
+    console.error('加载预警配置失败:', err);
+    showToast('加载预警配置失败', 'error');
+  }
+};
+
+const saveGlobalConfig = async () => {
+  savingGlobalConfig.value = true;
+  try {
+    const res = await updateGlobalAlertConfig({
+      enabled: alertGlobalConfig.enabled,
+      default_threshold: alertGlobalConfig.default_threshold
+    });
+    if (res.data.success) {
+      showToast('全局配置保存成功');
+      await fetchProducts();
+      await fetchAlertCount();
+      productConfigs.value.forEach(p => {
+        if (p.useGlobal) {
+          p.threshold = alertGlobalConfig.default_threshold;
+        }
+      });
+    }
+  } catch (err) {
+    console.error('保存全局配置失败:', err);
+    showToast(err.response?.data?.message || '保存全局配置失败', 'error');
+  } finally {
+    savingGlobalConfig.value = false;
+  }
+};
+
+const saveProductConfig = async (product) => {
+  product.saving = true;
+  try {
+    const res = await updateProductAlertConfig(product.id, {
+      threshold: product.threshold,
+      enabled: true
+    });
+    if (res.data.success) {
+      showToast(`${product.name} 阈值保存成功`);
+      await fetchProducts();
+      await fetchAlertCount();
+      product.useGlobal = false;
+    }
+  } catch (err) {
+    console.error('保存商品配置失败:', err);
+    showToast(err.response?.data?.message || '保存失败', 'error');
+  } finally {
+    product.saving = false;
+  }
+};
+
+const handleToggleUseGlobal = async (product) => {
+  if (product.useGlobal) {
+    try {
+      await deleteProductAlertConfig(product.id);
+      product.threshold = alertGlobalConfig.default_threshold;
+      await fetchProducts();
+      await fetchAlertCount();
+      showToast(`${product.name} 已恢复使用全局配置`);
+    } catch (err) {
+      console.error('删除商品配置失败:', err);
+      product.useGlobal = false;
+      showToast('操作失败', 'error');
+    }
+  }
+};
 
 const handleImageError = (event) => {
   event.target.src = defaultPlaceholder;
@@ -1504,5 +1749,239 @@ const quickAddToCart = async (product) => {
   color: #555;
   line-height: 1.6;
   margin-bottom: 2px;
+}
+
+.alert-config-modal {
+  max-width: 720px;
+  width: 90%;
+  max-height: 85vh;
+}
+
+.alert-config-modal .modal-body {
+  padding: 0;
+  max-height: calc(85vh - 70px);
+  overflow-y: auto;
+}
+
+.config-section {
+  padding: 20px 24px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.config-section:last-child {
+  border-bottom: none;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+}
+
+.section-title svg {
+  color: #667eea;
+}
+
+.section-subtitle {
+  font-size: 12px;
+  font-weight: normal;
+  color: #999;
+  margin-left: 4px;
+}
+
+.global-config-card {
+  background: #f9f9fc;
+  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid #e8e8f0;
+}
+
+.form-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 26px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  transition: .3s;
+  border-radius: 26px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 20px;
+  width: 20px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .3s;
+  border-radius: 50%;
+}
+
+.switch input:checked + .slider {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.switch input:checked + .slider:before {
+  transform: translateX(22px);
+}
+
+.help-text {
+  display: block;
+  font-size: 12px;
+  color: #999;
+  margin-top: 4px;
+}
+
+.product-config-header {
+  margin-bottom: 16px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.search-input:focus {
+  border-color: #667eea;
+}
+
+.product-config-list {
+  max-height: 340px;
+  overflow-y: auto;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+}
+
+.product-config-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f5f5f5;
+  gap: 12px;
+}
+
+.product-config-item:last-child {
+  border-bottom: none;
+}
+
+.product-config-item:nth-child(even) {
+  background: #fafafa;
+}
+
+.product-config-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.product-config-name {
+  font-weight: 500;
+  color: #333;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.product-config-stock {
+  font-size: 12px;
+  color: #888;
+}
+
+.product-config-stock.stock-alert {
+  color: #e74c3c;
+  font-weight: 600;
+}
+
+.product-config-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.use-global-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: #666;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.use-global-label input {
+  cursor: pointer;
+}
+
+.threshold-input {
+  width: 80px;
+  padding: 6px 10px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  font-size: 13px;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.threshold-input:focus {
+  border-color: #667eea;
+}
+
+.threshold-input:disabled {
+  background: #f5f5f5;
+  color: #bbb;
+  cursor: not-allowed;
+}
+
+.config-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 30px;
+  color: #888;
+  font-size: 14px;
+}
+
+.spinner.small {
+  width: 20px;
+  height: 20px;
+  border-width: 2px;
+  margin: 0;
 }
 </style>

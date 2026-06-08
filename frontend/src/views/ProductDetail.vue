@@ -14,13 +14,23 @@
     </div>
 
     <div v-else>
-      <div class="product-main">
+      <div 
+        class="product-main"
+        :class="{ 'product-main-alert': product.is_alert, 'product-main-severe': product.is_alert && product.stock <= product.alert_threshold * 0.5 }"
+      >
         <div class="product-image-large">
           <img
             :src="product.image || defaultPlaceholder"
             :alt="product.name"
             @error="handleImageError($event)"
           />
+          <span v-if="product.is_alert" class="detail-alert-tag">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+            </svg>
+            库存预警
+          </span>
         </div>
         <div class="product-info-large">
           <span class="category-tag">{{ product.category }}</span>
@@ -63,7 +73,19 @@
             <span class="price-value">¥{{ product.price.toFixed(2) }}</span>
           </div>
           <div class="product-stock-large">
-            库存: {{ product.stock }} 件
+            <span class="stock-label">库存:</span>
+            <span 
+              class="stock-value"
+              :class="{ 
+                'stock-alert': product.is_alert, 
+                'stock-severe': product.is_alert && product.stock <= product.alert_threshold * 0.5 
+              }"
+            >
+              {{ product.stock }}
+            </span>
+            <span v-if="product.is_alert" class="stock-unit">件</span>
+            <span v-if="product.is_alert" class="threshold-info">/阈值{{ product.alert_threshold }} 件</span>
+            <span v-if="!product.is_alert" class="stock-unit">件</span>
           </div>
           <div class="product-actions">
             <div class="quantity-selector">
@@ -651,9 +673,32 @@ watch(user, (newUser) => {
   gap: 40px;
   margin-bottom: 32px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  border: 2px solid transparent;
+  transition: all 0.3s ease;
+}
+
+.product-main-alert {
+  border-color: #ffcccc;
+  box-shadow: 0 2px 8px rgba(231, 76, 60, 0.1), 0 0 0 3px rgba(231, 76, 60, 0.05);
+  animation: pulse-border 2s ease-in-out infinite;
+}
+
+.product-main-severe {
+  border-color: #e74c3c;
+  box-shadow: 0 2px 8px rgba(231, 76, 60, 0.15), 0 0 0 3px rgba(231, 76, 60, 0.1);
+}
+
+@keyframes pulse-border {
+  0%, 100% {
+    box-shadow: 0 2px 8px rgba(231, 76, 60, 0.1), 0 0 0 3px rgba(231, 76, 60, 0.05);
+  }
+  50% {
+    box-shadow: 0 2px 12px rgba(231, 76, 60, 0.2), 0 0 0 5px rgba(231, 76, 60, 0.08);
+  }
 }
 
 .product-image-large {
+  position: relative;
   width: 100%;
   aspect-ratio: 1;
   background: #f5f5f5;
@@ -668,6 +713,34 @@ watch(user, (newUser) => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.detail-alert-tag {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+  color: white;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
+  animation: pulse-tag 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-tag {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 6px 16px rgba(231, 76, 60, 0.4);
+  }
 }
 
 .category-tag {
@@ -797,9 +870,53 @@ watch(user, (newUser) => {
 }
 
 .product-stock-large {
-  font-size: 14px;
+  font-size: 15px;
   color: #888;
   margin-bottom: 24px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.product-stock-large .stock-label {
+  color: #888;
+}
+
+.product-stock-large .stock-value {
+  font-weight: 600;
+  font-size: 16px;
+  color: #333;
+}
+
+.product-stock-large .stock-value.stock-alert {
+  color: #e74c3c;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.product-stock-large .stock-value.stock-severe {
+  color: #c0392b;
+  font-size: 22px;
+  font-weight: 700;
+  animation: blink-stock 1s ease-in-out infinite;
+}
+
+@keyframes blink-stock {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.product-stock-large .stock-unit {
+  color: #888;
+}
+
+.product-stock-large .threshold-info {
+  color: #999;
+  font-size: 13px;
 }
 
 .product-actions {

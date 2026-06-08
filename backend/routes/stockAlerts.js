@@ -509,7 +509,7 @@ router.get('/restock-order/:id/export', authMiddleware, async (ctx) => {
     row.alignment = { vertical: 'middle', horizontal: 'center' };
     row.getCell(2).alignment = { vertical: 'middle', horizontal: 'left' };
 
-    if (item.current_stock < item.threshold * 0.5) {
+    if (item.current_stock <= item.threshold * 0.5) {
       row.eachCell((cell) => {
         cell.fill = {
           type: 'pattern',
