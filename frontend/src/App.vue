@@ -7,9 +7,17 @@
         </router-link>
         <SearchBar v-model="searchQuery" @search="handleSearch" />
         <div class="header-actions">
-          <button v-if="showAddButton" class="btn btn-primary" @click="handleAddProduct">
-            + 添加商品
-          </button>
+          <template v-if="showAddButton">
+            <button class="btn btn-outline" @click="handleExport">
+              导出
+            </button>
+            <button class="btn btn-outline" @click="handleOpenImportModal">
+              导入
+            </button>
+            <button class="btn btn-primary" @click="handleAddProduct">
+              + 添加商品
+            </button>
+          </template>
           <button class="cart-icon-btn" @click="toggleCartDrawer" :title="'购物车 (' + cartCount + ')'">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="9" cy="21" r="1"></circle>
@@ -73,6 +81,20 @@ const handleSearch = (query) => {
 const handleAddProduct = () => {
   if (route.path === '/') {
     const event = new CustomEvent('open-add-modal');
+    window.dispatchEvent(event);
+  }
+};
+
+const handleExport = () => {
+  if (route.path === '/') {
+    const event = new CustomEvent('export-products');
+    window.dispatchEvent(event);
+  }
+};
+
+const handleOpenImportModal = () => {
+  if (route.path === '/') {
+    const event = new CustomEvent('open-import-modal');
     window.dispatchEvent(event);
   }
 };

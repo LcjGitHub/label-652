@@ -29,4 +29,28 @@ export const deleteProduct = (id) => {
   return api.delete(`/products/${id}`);
 };
 
+export const exportProducts = (params = {}) => {
+  return api.get('/products/export', {
+    params,
+    responseType: 'blob'
+  });
+};
+
+export const downloadTemplate = () => {
+  return api.get('/products/template', {
+    responseType: 'blob'
+  });
+};
+
+export const importProducts = (file, onUploadProgress) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  return api.post('/products/import', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    },
+    onUploadProgress
+  });
+};
+
 export default api;

@@ -172,6 +172,128 @@
       </div>
     </div>
 
+    <div v-if="showImportModal" class="modal-overlay" @click.self="closeImportModal">
+      <div class="modal import-modal">
+        <div class="modal-header">
+          <h2>批量导入商品</h2>
+          <button class="close-btn" @click="closeImportModal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="import-tip">
+            <div class="tip-icon">💡</div>
+            <div class="tip-content">
+              <p>请先下载导入模板，按照模板格式填写商品数据后上传。</p>
+              <button class="btn btn-outline btn-sm template-btn" @click="handleDownloadTemplate">
+                下载导入模板
+              </button>
+            </div>
+          </div>
+
+          <div
+            v-if="!importResult && !importing"
+            class="upload-area"
+            :class="{ 'drag-over': isDragOver }"
+            @dragover.prevent="isDragOver = true"
+            @dragleave="isDragOver = false"
+            @drop.prevent="handleDrop"
+          >
+            <input
+              type="file"
+              ref="fileInput"
+              accept=".xlsx,.xls"
+              style="display: none"
+              @change="handleFileChange"
+            />
+            <div class="upload-icon">📁</div>
+            <p class="upload-text">点击或拖拽 Excel 文件到此处</p>
+            <p class="upload-hint">支持 .xlsx, .xls 格式</p>
+            <button class="btn btn-primary" @click="$refs.fileInput.click()">
+              选择文件
+            </button>
+          </div>
+
+          <div v-if="selectedFile && !importing && !importResult" class="selected-file">
+            <div class="file-info">
+              <span class="file-icon">📄</span>
+              <span class="file-name">{{ selectedFile.name }}</span>
+              <span class="file-size">({{ formatFileSize(selectedFile.size) }})</span>
+            </div>
+            <button class="btn btn-danger btn-sm" @click="clearFile">移除</button>
+          </div>
+
+          <div v-if="importing" class="import-progress">
+            <div class="progress-header">
+              <span>正在导入...</span>
+              <span>{{ importProgress }}%</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" :style="{ width: importProgress + '%' }"></div>
+            </div>
+          </div>
+
+          <div v-if="importResult" class="import-result">
+            <div class="result-stats">
+              <div class="stat-item total">
+                <span class="stat-value">{{ importResult.total }}</span>
+                <span class="stat-label">总计</span>
+              </div>
+              <div class="stat-item success">
+                <span class="stat-value">{{ importResult.successCount }}</span>
+                <span class="stat-label">成功</span>
+              </div>
+              <div class="stat-item fail">
+                <span class="stat-value">{{ importResult.failCount }}</span>
+                <span class="stat-label">失败</span>
+              </div>
+            </div>
+
+            <div v-if="importResult.errors && importResult.errors.length > 0" class="errors-section">
+              <h4 class="errors-title">错误详情 ({{ importResult.errors.length }} 条)</h4>
+              <div class="errors-list">
+                <div
+                  v-for="(error, index) in importResult.errors"
+                  :key="index"
+                  class="error-item"
+                >
+                  <div class="error-header">
+                    <span v-if="error.row">第 {{ error.row }} 行</span>
+                    <span v-else>系统错误</span>
+                    <span v-if="error.data.name" class="error-name"> - {{ error.data.name }}</span>
+                  </div>
+                  <ul class="error-list">
+                    <li v-for="(msg, i) in error.errors" :key="i">{{ msg }}</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline" @click="closeImportModal">
+              {{ importResult ? '关闭' : '取消' }}
+            </button>
+            <button
+              v-if="selectedFile && !importing && !importResult"
+              type="button"
+              class="btn btn-primary"
+              :disabled="importing"
+              @click="handleImport"
+            >
+              开始导入
+            </button>
+            <button
+              v-if="importResult"
+              type="button"
+              class="btn btn-primary"
+              @click="resetImportAndContinue"
+            >
+              继续导入
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div v-if="toast.show" class="toast" :class="toast.type">
       {{ toast.message }}
     </div>
@@ -205,7 +327,10 @@ import {
   getCategories,
   createProduct,
   updateProduct,
-  deleteProduct
+  deleteProduct,
+  exportProducts,
+  downloadTemplate,
+  importProducts
 } from '../api/products.js';
 import { useAuth } from '../composables/useAuth.js';
 import { useCart } from '../composables/useCart.js';
@@ -222,18 +347,192 @@ const showModal = ref(false);
 const editingProduct = ref(null);
 const addingCartId = ref(null);
 
+const showImportModal = ref(false);
+const selectedFile = ref(null);
+const isDragOver = ref(false);
+const importing = ref(false);
+const importProgress = ref(0);
+const importResult = ref(null);
+const fileInput = ref(null);
+
 const handleOpenAddModal = () => {
   openModal();
+};
+
+const handleOpenImportModal = () => {
+  showImportModal.value = true;
+};
+
+const handleExportProducts = async () => {
+  try {
+    const params = {};
+    if (selectedCategory.value !== 'all') {
+      params.category = selectedCategory.value;
+    }
+    const res = await exportProducts(params);
+    const blob = new Blob([res.data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const contentDisposition = res.headers['content-disposition'];
+    let fileName = '商品列表.xlsx';
+    if (contentDisposition) {
+      const match = contentDisposition.match(/filename="?([^"]+)"?/);
+      if (match) {
+        fileName = decodeURIComponent(match[1]);
+      }
+    }
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+    showToast('导出成功', 'success');
+  } catch (err) {
+    console.error('导出失败:', err);
+    showToast('导出失败', 'error');
+  }
+};
+
+const handleDownloadTemplate = async () => {
+  try {
+    const res = await downloadTemplate();
+    const blob = new Blob([res.data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = '商品导入模板.xlsx';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error('下载模板失败:', err);
+    showToast('下载模板失败', 'error');
+  }
+};
+
+const handleFileChange = (event) => {
+  const file = event.target.files[0];
+  if (file) {
+    validateAndSetFile(file);
+  }
+};
+
+const handleDrop = (event) => {
+  isDragOver.value = false;
+  const file = event.dataTransfer.files[0];
+  if (file) {
+    validateAndSetFile(file);
+  }
+};
+
+const validateAndSetFile = (file) => {
+  const validTypes = [
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-excel'
+  ];
+  const validExtensions = ['.xlsx', '.xls'];
+  const ext = '.' + file.name.split('.').pop().toLowerCase();
+
+  if (!validTypes.includes(file.type) && !validExtensions.includes(ext)) {
+    showToast('请上传 Excel 文件（.xlsx 或 .xls 格式）', 'error');
+    return;
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    showToast('文件大小不能超过 10MB', 'error');
+    return;
+  }
+  selectedFile.value = file;
+};
+
+const clearFile = () => {
+  selectedFile.value = null;
+  if (fileInput.value) {
+    fileInput.value.value = '';
+  }
+};
+
+const closeImportModal = () => {
+  if (importing.value) return;
+  showImportModal.value = false;
+  selectedFile.value = null;
+  importResult.value = null;
+  importProgress.value = 0;
+  if (fileInput.value) {
+    fileInput.value.value = '';
+  }
+};
+
+const resetImportAndContinue = () => {
+  selectedFile.value = null;
+  importResult.value = null;
+  importProgress.value = 0;
+  if (fileInput.value) {
+    fileInput.value.value = '';
+  }
+};
+
+const handleImport = async () => {
+  if (!selectedFile.value) return;
+
+  importing.value = true;
+  importProgress.value = 0;
+  importResult.value = null;
+
+  try {
+    const res = await importProducts(selectedFile.value, (progressEvent) => {
+      if (progressEvent.total) {
+        importProgress.value = Math.round((progressEvent.loaded / progressEvent.total) * 100);
+      }
+    });
+
+    importProgress.value = 100;
+    importResult.value = res.data.data;
+
+    if (res.data.data.successCount > 0) {
+      showToast(res.data.message, 'success');
+      fetchProducts();
+    } else {
+      showToast(res.data.message, 'error');
+    }
+  } catch (err) {
+    console.error('导入失败:', err);
+    const errorMessage = err.response?.data?.message || '导入失败，请稍后重试';
+    showToast(errorMessage, 'error');
+    importResult.value = {
+      total: 0,
+      successCount: 0,
+      failCount: 0,
+      errors: [{ row: null, errors: [errorMessage], data: {} }]
+    };
+  } finally {
+    importing.value = false;
+  }
+};
+
+const formatFileSize = (bytes) => {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 };
 
 onMounted(() => {
   fetchCategories();
   fetchProducts();
   window.addEventListener('open-add-modal', handleOpenAddModal);
+  window.addEventListener('open-import-modal', handleOpenImportModal);
+  window.addEventListener('export-products', handleExportProducts);
 });
 
 onUnmounted(() => {
   window.removeEventListener('open-add-modal', handleOpenAddModal);
+  window.removeEventListener('open-import-modal', handleOpenImportModal);
+  window.removeEventListener('export-products', handleExportProducts);
 });
 
 const pagination = reactive({
@@ -879,5 +1178,241 @@ const quickAddToCart = async (product) => {
   font-size: 15px;
   color: #555;
   line-height: 1.6;
+}
+
+.import-modal {
+  max-width: 640px;
+}
+
+.import-tip {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  background: #f0f7ff;
+  border: 1px solid #b8daff;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.tip-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.tip-content {
+  flex: 1;
+}
+
+.tip-content p {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  color: #004085;
+  line-height: 1.5;
+}
+
+.template-btn {
+  flex: none;
+}
+
+.upload-area {
+  border: 2px dashed #d0d0d0;
+  border-radius: 12px;
+  padding: 40px 20px;
+  text-align: center;
+  transition: all 0.2s;
+  cursor: pointer;
+  background: #fafafa;
+}
+
+.upload-area:hover,
+.upload-area.drag-over {
+  border-color: #667eea;
+  background: #f5f7ff;
+}
+
+.upload-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+}
+
+.upload-text {
+  font-size: 16px;
+  font-weight: 500;
+  color: #333;
+  margin: 0 0 6px 0;
+}
+
+.upload-hint {
+  font-size: 13px;
+  color: #999;
+  margin: 0 0 20px 0;
+}
+
+.selected-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+  border-radius: 8px;
+  margin-top: 16px;
+}
+
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #333;
+}
+
+.file-icon {
+  font-size: 20px;
+}
+
+.file-name {
+  font-weight: 500;
+}
+
+.file-size {
+  color: #888;
+  font-size: 13px;
+}
+
+.import-progress {
+  padding: 20px 0;
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 10px;
+  background: #f0f0f0;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 5px;
+  transition: width 0.3s ease;
+}
+
+.import-result {
+  margin-top: 16px;
+}
+
+.result-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.stat-item {
+  text-align: center;
+  padding: 16px;
+  border-radius: 10px;
+}
+
+.stat-item.total {
+  background: #e6f7ff;
+  border: 1px solid #91d5ff;
+}
+
+.stat-item.success {
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+}
+
+.stat-item.fail {
+  background: #fff2f0;
+  border: 1px solid #ffccc7;
+}
+
+.stat-value {
+  display: block;
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.stat-item.total .stat-value {
+  color: #1890ff;
+}
+
+.stat-item.success .stat-value {
+  color: #52c41a;
+}
+
+.stat-item.fail .stat-value {
+  color: #ff4d4f;
+}
+
+.stat-label {
+  font-size: 13px;
+  color: #666;
+}
+
+.errors-section {
+  margin-top: 16px;
+}
+
+.errors-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e74c3c;
+  margin: 0 0 12px 0;
+}
+
+.errors-list {
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid #eee;
+  border-radius: 8px;
+}
+
+.error-item {
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0f0f0;
+  background: #fffbfb;
+}
+
+.error-item:last-child {
+  border-bottom: none;
+}
+
+.error-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e74c3c;
+  margin-bottom: 6px;
+}
+
+.error-name {
+  color: #666;
+  font-weight: normal;
+}
+
+.error-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.error-list li {
+  font-size: 13px;
+  color: #555;
+  line-height: 1.6;
+  margin-bottom: 2px;
 }
 </style>
