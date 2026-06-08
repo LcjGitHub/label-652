@@ -11,7 +11,7 @@ import {
   getProductPriceRange,
   getProductStock
 } from '../database.js';
-import { authMiddleware } from '../middleware/auth.js';
+import { authMiddleware, optionalAuthMiddleware } from '../middleware/auth.js';
 import { getProductThreshold, getGlobalConfig } from './stockAlerts.js';
 
 const router = new Router({ prefix: '/api/products' });
@@ -58,35 +58,47 @@ const EXCEL_HEADERS = [
   { key: 'image', header: '图片链接', width: 50, required: false }
 ];
 
-router.get('/', async (ctx) => {
-  const { category, page = 1, limit = 10 } = ctx.query;
+router.get('/', optionalAuthMiddleware, async (ctx) => {
+  const { category, page = 1, limit = 10, sortBy = 'created_at' } = ctx.query;
   const pageNum = parseInt(page);
   const limitNum = parseInt(limit);
   const offset = (pageNum - 1) * limitNum;
+  const userId = ctx.state.user ? ctx.state.user.id : null;
 
   let whereClause = '';
   let params = [];
 
   if (category && category !== 'all') {
-    whereClause = 'WHERE category = ?';
+    whereClause = 'WHERE p.category = ?';
     params.push(category);
   }
 
-  const countResult = await getQuery(`SELECT COUNT(*) as total FROM products ${whereClause}`, params);
+  const countResult = await getQuery(`SELECT COUNT(*) as total FROM products p ${whereClause}`, params);
   const total = countResult.total;
 
   const globalConfig = await getGlobalConfig();
   const globalEnabled = globalConfig.enabled === 1;
 
+  let orderByClause = 'p.created_at DESC';
+  let joinClause = '';
+
+  if (sortBy === 'favorited_at' && userId) {
+    joinClause = 'LEFT JOIN favorites f ON f.product_id = p.id AND f.user_id = ?';
+    orderByClause = 'f.created_at DESC, p.created_at DESC';
+    params.unshift(userId);
+  }
+
   const products = await allQuery(`
     SELECT 
       p.*,
       COALESCE(sac.threshold, ?) as alert_threshold,
-      COALESCE(sac.enabled, ?) as alert_enabled
+      COALESCE(sac.enabled, ?) as alert_enabled,
+      f.created_at as favorited_at
     FROM products p
+    ${joinClause}
     LEFT JOIN stock_alert_config sac ON p.id = sac.product_id
     ${whereClause}
-    ORDER BY p.created_at DESC
+    ORDER BY ${orderByClause}
     LIMIT ? OFFSET ?
   `, [globalConfig.default_threshold, globalConfig.enabled, ...params, limitNum, offset]);
 
@@ -114,7 +126,8 @@ router.get('/', async (ctx) => {
       updated_at: enriched.updated_at,
       alert_threshold: p.alert_threshold,
       alert_enabled: alertEnabled,
-      is_alert: isAlert
+      is_alert: isAlert,
+      favorited_at: p.favorited_at
     });
   }
 

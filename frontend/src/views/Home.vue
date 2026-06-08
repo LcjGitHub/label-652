@@ -20,6 +20,13 @@
           {{ category }}
         </button>
       </div>
+      <div class="sort-section">
+        <span class="filter-label">排序：</span>
+        <select v-model="sortBy" @change="handleSortChange" class="sort-select">
+          <option value="created_at">最新上架</option>
+          <option value="favorited_at">收藏时间</option>
+        </select>
+      </div>
     </div>
 
     <div v-if="loading" class="loading">
@@ -54,6 +61,16 @@
             </svg>
             库存预警
           </span>
+          <button
+            class="favorite-heart-btn"
+            :class="{ 'favorited': isFavorited(product.id), 'loading': favoriteLoadingId === product.id }"
+            :title="isFavorited(product.id) ? '取消收藏' : '收藏'"
+            @click.stop="handleToggleFavorite(product)"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" :fill="isFavorited(product.id) ? '#e74c3c' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+            </svg>
+          </button>
         </div>
         <div class="product-info">
           <h3 class="product-name">{{ product.name }}</h3>
@@ -626,16 +643,20 @@ import {
 import { useAuth } from '../composables/useAuth.js';
 import { useCart } from '../composables/useCart.js';
 import { useStockAlert } from '../composables/useStockAlert.js';
+import { useFavorites } from '../composables/useFavorites.js';
 
 const router = useRouter();
 const { isAuthenticated } = useAuth();
 const { handleAddToCart, openCartDrawer } = useCart();
 const { fetchAlertCount } = useStockAlert();
+const { isFavorited, toggleFavorite, fetchFavoriteIds, requireAuth } = useFavorites();
 
 const categories = ref([]);
 const products = ref([]);
 const loading = ref(false);
 const selectedCategory = ref('all');
+const sortBy = ref('created_at');
+const favoriteLoadingId = ref(null);
 const showModal = ref(false);
 const editingProduct = ref(null);
 const addingCartId = ref(null);
@@ -868,6 +889,9 @@ const formatFileSize = (bytes) => {
 onMounted(() => {
   fetchCategories();
   fetchProducts();
+  if (localStorage.getItem('token')) {
+    fetchFavoriteIds();
+  }
   window.addEventListener('open-add-modal', handleOpenAddModal);
   window.addEventListener('open-import-modal', handleOpenImportModal);
   window.addEventListener('export-products', handleExportProducts);
@@ -1101,6 +1125,9 @@ const fetchProducts = async () => {
     if (selectedCategory.value !== 'all') {
       params.category = selectedCategory.value;
     }
+    if (sortBy.value) {
+      params.sortBy = sortBy.value;
+    }
     const res = await getProducts(params);
     if (res.data.success) {
       products.value = res.data.data.products;
@@ -1115,6 +1142,25 @@ const fetchProducts = async () => {
     showToast('获取商品失败，请检查后端服务是否正常', 'error');
   } finally {
     loading.value = false;
+  }
+};
+
+const handleSortChange = () => {
+  pagination.page = 1;
+  fetchProducts();
+};
+
+const handleToggleFavorite = async (product) => {
+  if (!requireAuth()) {
+    showToast('请先登录', 'error');
+    return;
+  }
+  favoriteLoadingId.value = product.id;
+  try {
+    const result = await toggleFavorite(product.id);
+    showToast(result.message, result.success ? 'success' : 'error');
+  } finally {
+    favoriteLoadingId.value = null;
   }
 };
 
@@ -2706,5 +2752,101 @@ const quickAddToCart = async (product) => {
 .sku-batch-actions .btn {
   padding: 5px 10px;
   font-size: 12px;
+}
+
+.sort-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sort-select {
+  padding: 8px 14px;
+  border: 2px solid #e0e0e0;
+  background: white;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #555;
+  transition: all 0.2s;
+  outline: none;
+}
+
+.sort-select:hover {
+  border-color: #667eea;
+  color: #667eea;
+}
+
+.sort-select:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.favorite-heart-btn {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transition: all 0.2s;
+  color: #999;
+  z-index: 2;
+}
+
+.favorite-heart-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  color: #e74c3c;
+}
+
+.favorite-heart-btn.favorited {
+  color: #e74c3c;
+  animation: heartPop 0.3s ease;
+}
+
+.favorite-heart-btn.loading {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@keyframes heartPop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+
+.spec-tag {
+  position: absolute;
+  top: 12px;
+  left: auto;
+  right: 12px;
+  background: rgba(39, 174, 96, 0.95);
+  color: white;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+@media (max-width: 768px) {
+  .alert-tag {
+    top: auto;
+    bottom: 12px;
+    right: 12px;
+  }
+
+  .spec-tag {
+    right: auto;
+    left: 12px;
+    top: 44px;
+  }
 }
 </style>

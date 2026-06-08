@@ -267,6 +267,23 @@ async function initDatabase() {
   `);
 
   await db.execute(`
+    CREATE TABLE IF NOT EXISTS favorites (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+      UNIQUE(user_id, product_id)
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id);
+    CREATE INDEX IF NOT EXISTS idx_favorites_product ON favorites(product_id);
+  `);
+
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS stock_alert_global_config (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       default_threshold INTEGER NOT NULL DEFAULT 10,

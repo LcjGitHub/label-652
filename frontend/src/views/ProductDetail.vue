@@ -157,6 +157,17 @@
               <span v-else>加入购物车</span>
             </button>
             <button
+              class="btn btn-favorite btn-large"
+              :class="{ 'favorited': isProductFavorited, 'loading': favoriteLoading }"
+              :disabled="favoriteLoading"
+              @click="handleToggleFavorite"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" :fill="isProductFavorited ? '#e74c3c' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+              </svg>
+              <span>{{ isProductFavorited ? '已收藏' : '收藏商品' }}</span>
+            </button>
+            <button
               class="btn btn-outline btn-large"
               @click="openReviewModal"
             >
@@ -354,12 +365,14 @@ import {
 import { recordBrowse, getSimilarProducts } from '../api/recommendations.js';
 import { useAuth } from '../composables/useAuth.js';
 import { useCart } from '../composables/useCart.js';
+import { useFavorites } from '../composables/useFavorites.js';
 import ReviewModal from '../components/ReviewModal.vue';
 
 const route = useRoute();
 const router = useRouter();
 const { user, isAuthenticated } = useAuth();
 const { handleAddToCart, isLoading: cartLoading, openCartDrawer } = useCart();
+const { isFavorited, toggleFavorite, checkFavoriteStatus, fetchFavoriteIds, requireAuth } = useFavorites();
 
 const productId = computed(() => route.params.id);
 
@@ -379,6 +392,12 @@ const editingReview = ref(null);
 const filterRating = ref('all');
 const sortBy = ref('created_at');
 const userReview = ref(null);
+const favoriteLoading = ref(false);
+
+const isProductFavorited = computed(() => {
+  if (!productId.value) return false;
+  return isFavorited(productId.value);
+});
 
 const reviewPagination = reactive({
   page: 1,
@@ -508,6 +527,20 @@ const recordBrowseHistory = async () => {
     await recordBrowse(productId.value);
   } catch (err) {
     console.error('记录浏览历史失败:', err);
+  }
+};
+
+const handleToggleFavorite = async () => {
+  if (!requireAuth()) {
+    showToast('请先登录', 'error');
+    return;
+  }
+  favoriteLoading.value = true;
+  try {
+    const result = await toggleFavorite(productId.value);
+    showToast(result.message, result.success ? 'success' : 'error');
+  } finally {
+    favoriteLoading.value = false;
   }
 };
 
@@ -685,6 +718,9 @@ onMounted(() => {
   fetchUserReview();
   fetchSimilarProducts();
   recordBrowseHistory();
+  if (localStorage.getItem('token')) {
+    fetchFavoriteIds();
+  }
 });
 
 watch(productId, () => {
@@ -699,6 +735,7 @@ watch(productId, () => {
 watch(user, (newUser) => {
   if (newUser) {
     fetchUserReview();
+    fetchFavoriteIds();
   } else {
     userReview.value = null;
   }
@@ -1637,5 +1674,37 @@ watch(user, (newUser) => {
   .rec-name {
     font-size: 13px;
   }
+}
+
+.btn-favorite {
+  background: white;
+  border: 2px solid #e74c3c;
+  color: #e74c3c;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s;
+}
+
+.btn-favorite:hover {
+  background: #e74c3c;
+  color: white;
+  transform: translateY(-1px);
+}
+
+.btn-favorite.favorited {
+  background: #e74c3c;
+  color: white;
+}
+
+.btn-favorite.favorited:hover {
+  background: #c0392b;
+  border-color: #c0392b;
+}
+
+.btn-favorite.loading {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
 }
 </style>

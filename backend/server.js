@@ -11,6 +11,7 @@ import healthRouter from './routes/health.js';
 import searchRouter from './routes/search.js';
 import recommendationsRouter from './routes/recommendations.js';
 import { router as stockAlertsRouter } from './routes/stockAlerts.js';
+import favoritesRouter from './routes/favorites.js';
 import { dbReady } from './database.js';
 import config from '../config.js';
 
@@ -65,6 +66,9 @@ app.use(recommendationsRouter.allowedMethods());
 
 app.use(stockAlertsRouter.routes());
 app.use(stockAlertsRouter.allowedMethods());
+
+app.use(favoritesRouter.routes());
+app.use(favoritesRouter.allowedMethods());
 
 async function checkPortAvailable(port, host) {
   return new Promise((resolve, reject) => {

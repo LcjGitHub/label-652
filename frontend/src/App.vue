@@ -43,6 +43,9 @@
             <span v-if="cartCount > 0" class="cart-badge">{{ cartCount > 99 ? '99+' : cartCount }}</span>
           </button>
           <div v-if="isAuthenticated" class="user-menu">
+            <router-link to="/favorites" class="btn btn-outline btn-sm">
+              我的收藏
+            </router-link>
             <router-link to="/orders" class="btn btn-outline btn-sm">
               我的订单
             </router-link>
@@ -77,6 +80,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuth } from './composables/useAuth.js';
 import { useCart } from './composables/useCart.js';
 import { useStockAlert } from './composables/useStockAlert.js';
+import { useFavorites } from './composables/useFavorites.js';
 import CartDrawer from './components/CartDrawer.vue';
 import AlertDrawer from './components/AlertDrawer.vue';
 import SearchBar from './components/SearchBar.vue';
@@ -86,6 +90,7 @@ const router = useRouter();
 const { user, isAuthenticated, isLoading: authLoading, handleLogout, loadUser } = useAuth();
 const { cartCount, isCartDrawerOpen, loadCart, loadCartFromServer, toggleCartDrawer, closeCartDrawer } = useCart();
 const { alertCount, isAlertDrawerOpen, fetchAlertCount, toggleAlertDrawer, closeAlertDrawer } = useStockAlert();
+const { fetchFavoriteIds, clearFavorites } = useFavorites();
 
 const searchQuery = ref('');
 
@@ -134,11 +139,15 @@ onMounted(async () => {
     await nextTick();
     if (isAuthenticated.value) {
       await loadCartFromServer();
+      await fetchFavoriteIds();
     } else {
       await loadCart();
     }
   } else {
     await loadCart();
+    if (localStorage.getItem('token')) {
+      await fetchFavoriteIds();
+    }
   }
   await fetchAlertCount();
   alertRefreshTimer = setInterval(() => {
@@ -149,6 +158,9 @@ onMounted(async () => {
 watch(isAuthenticated, async (newVal, oldVal) => {
   if (newVal && !oldVal) {
     await nextTick();
+    await fetchFavoriteIds();
+  } else if (!newVal && oldVal) {
+    clearFavorites();
   }
 });
 

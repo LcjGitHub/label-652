@@ -46,6 +46,12 @@ const routes = [
     path: '/search',
     name: 'SearchResults',
     component: () => import('../views/SearchResults.vue')
+  },
+  {
+    path: '/favorites',
+    name: 'Favorites',
+    component: () => import('../views/Favorites.vue'),
+    meta: { requiresAuth: true }
   }
 ];
 
