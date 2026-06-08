@@ -8,49 +8,15 @@ import {
   allQuery,
   getProductSpecs,
   getProductSkus,
-  getProductPriceRange,
-  getProductStock,
-  getProductActivePromotion,
-  getPromotionDisplayText,
-  calculatePromotionPrice
+  enrichProductsBatch,
+  invalidateProductCache
 } from '../database.js';
 import { authMiddleware, optionalAuthMiddleware } from '../middleware/auth.js';
 import { getProductThreshold, getGlobalConfig } from './stockAlerts.js';
+import { getCache, CACHE_KEYS } from '../cache.js';
 
 const router = new Router({ prefix: '/api/products' });
 const upload = multer({ storage: multer.memoryStorage() });
-
-async function enrichProductWithSpecs(product) {
-  if (!product) return product;
-  const enriched = { ...product };
-  enriched.has_multi_spec = product.has_multi_spec === 1;
-
-  if (enriched.has_multi_spec) {
-    const priceRange = await getProductPriceRange(product.id);
-    enriched.min_price = priceRange.min_price;
-    enriched.max_price = priceRange.max_price;
-    enriched.total_stock = await getProductStock(product.id);
-    enriched.specs = await getProductSpecs(product.id);
-    enriched.skus = await getProductSkus(product.id);
-    for (const sku of enriched.skus) {
-      const specsObj = {};
-      if (sku.spec_text) {
-        for (const part of sku.spec_text.split(/[;\/]/)) {
-          const [k, v] = part.split(':');
-          if (k && v) specsObj[k.trim()] = v.trim();
-        }
-      }
-      sku.specs = specsObj;
-    }
-  } else {
-    enriched.min_price = product.price;
-    enriched.max_price = product.price;
-    enriched.total_stock = product.stock;
-    enriched.specs = [];
-    enriched.skus = [];
-  }
-  return enriched;
-}
 
 const EXCEL_HEADERS = [
   { key: 'name', header: '商品名称', width: 30, required: true },
@@ -67,6 +33,14 @@ router.get('/', optionalAuthMiddleware, async (ctx) => {
   const limitNum = parseInt(limit);
   const offset = (pageNum - 1) * limitNum;
   const userId = ctx.state.user ? ctx.state.user.id : null;
+  const cache = getCache();
+
+  const cacheKey = `${CACHE_KEYS.PRODUCT_LIST}${category || 'all'}:${pageNum}:${limitNum}:${sortBy}:${userId || 'guest'}`;
+  const cached = await cache.get(cacheKey);
+  if (cached) {
+    ctx.body = cached;
+    return;
+  }
 
   let whereClause = '';
   let params = [];
@@ -107,23 +81,15 @@ router.get('/', optionalAuthMiddleware, async (ctx) => {
     LIMIT ? OFFSET ?
   `, [globalConfig.default_threshold, globalConfig.enabled, ...params, limitNum, offset]);
 
-  const productsWithAlert = [];
-  for (const p of products) {
-    const enriched = await enrichProductWithSpecs(p);
-    const displayStock = enriched.has_multi_spec ? enriched.total_stock : p.stock;
+  const enrichedProducts = await enrichProductsBatch(products);
+
+  const productsWithAlert = enrichedProducts.map(enriched => {
+    const p = products.find(x => x.id === enriched.id) || enriched;
+    const displayStock = enriched.has_multi_spec ? enriched.total_stock : enriched.stock;
     const alertEnabled = p.alert_enabled === 1 && globalEnabled;
     const isAlert = alertEnabled && displayStock < p.alert_threshold;
 
-    const promotion = await getProductActivePromotion(p.id);
-    const promotionData = promotion ? {
-      id: promotion.id,
-      name: promotion.name,
-      type: promotion.type,
-      display_text: getPromotionDisplayText(promotion),
-      price: calculatePromotionPrice(promotion, p.price, 1)
-    } : null;
-
-    productsWithAlert.push({
+    return {
       id: enriched.id,
       name: enriched.name,
       description: enriched.description,
@@ -143,11 +109,11 @@ router.get('/', optionalAuthMiddleware, async (ctx) => {
       alert_enabled: alertEnabled,
       is_alert: isAlert,
       favorited_at: p.favorited_at,
-      promotion: promotionData
-    });
-  }
+      promotion: enriched.promotion
+    };
+  });
 
-  ctx.body = {
+  const response = {
     success: true,
     data: {
       products: productsWithAlert,
@@ -159,6 +125,9 @@ router.get('/', optionalAuthMiddleware, async (ctx) => {
       }
     }
   };
+
+  await cache.set(cacheKey, response, CACHE_KEYS.TTL_PRODUCT_LIST);
+  ctx.body = response;
 });
 
 router.get('/categories', async (ctx) => {
@@ -433,6 +402,14 @@ router.post('/import', authMiddleware, upload.single('file'), async (ctx) => {
 
 router.get('/:id', async (ctx) => {
   const { id } = ctx.params;
+  const cache = getCache();
+  const cacheKey = `${CACHE_KEYS.PRODUCT_DETAIL}${id}`;
+  const cached = await cache.get(cacheKey);
+  if (cached) {
+    ctx.body = cached;
+    return;
+  }
+
   const globalConfig = await getGlobalConfig();
   const product = await getQuery(`
     SELECT 
@@ -450,23 +427,13 @@ router.get('/:id', async (ctx) => {
     return;
   }
 
-  const enriched = await enrichProductWithSpecs(product);
+  const enrichedProducts = await enrichProductsBatch([product]);
+  const enriched = enrichedProducts[0];
   const displayStock = enriched.has_multi_spec ? enriched.total_stock : product.stock;
   const alertEnabled = product.alert_enabled === 1 && globalConfig.enabled === 1;
   const isAlert = alertEnabled && displayStock < product.alert_threshold;
 
-  const promotion = await getProductActivePromotion(id);
-  const promotionData = promotion ? {
-    id: promotion.id,
-    name: promotion.name,
-    type: promotion.type,
-    rules: promotion.rules,
-    description: promotion.description,
-    display_text: getPromotionDisplayText(promotion),
-    price: calculatePromotionPrice(promotion, product.price, 1)
-  } : null;
-
-  ctx.body = {
+  const response = {
     success: true,
     data: {
       id: enriched.id,
@@ -487,9 +454,12 @@ router.get('/:id', async (ctx) => {
       alert_threshold: product.alert_threshold,
       alert_enabled: alertEnabled,
       is_alert: isAlert,
-      promotion: promotionData
+      promotion: enriched.promotion
     }
   };
+
+  await cache.set(cacheKey, response, CACHE_KEYS.TTL_PRODUCT_DETAIL);
+  ctx.body = response;
 });
 
 router.get('/:id/skus', async (ctx) => {
@@ -622,6 +592,8 @@ router.post('/', authMiddleware, async (ctx) => {
     await saveProductSpecsAndSkus(productId, true, specs, skus);
   }
 
+  await invalidateProductCache();
+
   ctx.status = 201;
   ctx.body = {
     success: true,
@@ -685,10 +657,9 @@ router.put('/:id', authMiddleware, async (ctx) => {
     await saveProductSpecsAndSkus(id, finalHasMultiSpec, finalSpecs, finalSkus);
   }
 
-  const updatedProduct = await getQuery('SELECT * FROM products WHERE id = ?', [id]);
-  const enriched = await enrichProductWithSpecs(updatedProduct);
+  await invalidateProductCache(id);
 
-  ctx.body = { success: true, data: enriched };
+  ctx.body = { success: true };
 });
 
 router.delete('/:id', authMiddleware, async (ctx) => {
@@ -703,6 +674,7 @@ router.delete('/:id', authMiddleware, async (ctx) => {
   }
 
   await runQuery('DELETE FROM products WHERE id = ?', [id]);
+  await invalidateProductCache(id);
 
   ctx.body = { success: true, message: '删除成功' };
 });

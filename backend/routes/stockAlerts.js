@@ -2,10 +2,15 @@ import Router from 'koa-router';
 import ExcelJS from 'exceljs';
 import { runQuery, getQuery, allQuery, getProductStock } from '../database.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { getCache, CACHE_KEYS } from '../cache.js';
 
 const router = new Router({ prefix: '/api/stock-alerts' });
 
 async function getGlobalConfig() {
+  const cache = getCache();
+  const cached = await cache.get(CACHE_KEYS.GLOBAL_STOCK_CONFIG);
+  if (cached) return cached;
+
   let config = await getQuery('SELECT * FROM stock_alert_global_config ORDER BY id DESC LIMIT 1');
   if (!config) {
     await runQuery(`
@@ -14,6 +19,8 @@ async function getGlobalConfig() {
     `);
     config = await getQuery('SELECT * FROM stock_alert_global_config ORDER BY id DESC LIMIT 1');
   }
+
+  await cache.set(CACHE_KEYS.GLOBAL_STOCK_CONFIG, config, CACHE_KEYS.TTL_GLOBAL_CONFIG);
   return config;
 }
 
@@ -93,6 +100,11 @@ router.put('/global-config', authMiddleware, async (ctx) => {
       notify_email || 'admin@example.com'
     ]);
   }
+
+  const cache = getCache();
+  await cache.del(CACHE_KEYS.GLOBAL_STOCK_CONFIG);
+  await cache.delPattern(`${CACHE_KEYS.PRODUCT_LIST}*`);
+  await cache.delPattern(`${CACHE_KEYS.PRODUCT_DETAIL}*`);
 
   const updated = await getGlobalConfig();
   ctx.body = {
@@ -209,6 +221,10 @@ router.put('/product-config/:productId', authMiddleware, async (ctx) => {
     [productId]
   );
 
+  const cache = getCache();
+  await cache.delPattern(`${CACHE_KEYS.PRODUCT_LIST}*`);
+  await cache.del(`${CACHE_KEYS.PRODUCT_DETAIL}${productId}`);
+
   ctx.body = {
     success: true,
     data: {
@@ -233,6 +249,11 @@ router.delete('/product-config/:productId', authMiddleware, async (ctx) => {
   }
 
   await runQuery('DELETE FROM stock_alert_config WHERE product_id = ?', [productId]);
+
+  const cache = getCache();
+  await cache.delPattern(`${CACHE_KEYS.PRODUCT_LIST}*`);
+  await cache.del(`${CACHE_KEYS.PRODUCT_DETAIL}${productId}`);
+
   ctx.body = { success: true, message: '已删除自定义配置，将使用全局默认阈值' };
 });
 

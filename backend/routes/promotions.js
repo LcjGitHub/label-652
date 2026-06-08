@@ -8,6 +8,7 @@ import {
   getAllActivePromotions
 } from '../database.js';
 import { authMiddleware, optionalAuthMiddleware } from '../middleware/auth.js';
+import { getCache, CACHE_KEYS } from '../cache.js';
 
 const router = new Router({ prefix: '/api/promotions' });
 
@@ -136,6 +137,11 @@ router.post('/', authMiddleware, async (ctx) => {
     } catch (e) {}
   }
 
+  const cache = getCache();
+  await cache.delPattern(`${CACHE_KEYS.PRODUCT_LIST}*`);
+  await cache.delPattern(`${CACHE_KEYS.PRODUCT_DETAIL}*`);
+  await cache.delPattern(`${CACHE_KEYS.PRODUCT_PROMOTION}*`);
+
   ctx.status = 201;
   ctx.body = {
     success: true,
@@ -203,6 +209,11 @@ router.put('/:id', authMiddleware, async (ctx) => {
     }
   }
 
+  const cache = getCache();
+  await cache.delPattern(`${CACHE_KEYS.PRODUCT_LIST}*`);
+  await cache.delPattern(`${CACHE_KEYS.PRODUCT_DETAIL}*`);
+  await cache.delPattern(`${CACHE_KEYS.PRODUCT_PROMOTION}*`);
+
   ctx.body = {
     success: true,
     message: '促销活动更新成功'
@@ -220,6 +231,11 @@ router.delete('/:id', authMiddleware, async (ctx) => {
   }
 
   await runQuery('DELETE FROM promotions WHERE id = ?', [id]);
+
+  const cache = getCache();
+  await cache.delPattern(`${CACHE_KEYS.PRODUCT_LIST}*`);
+  await cache.delPattern(`${CACHE_KEYS.PRODUCT_DETAIL}*`);
+  await cache.delPattern(`${CACHE_KEYS.PRODUCT_PROMOTION}*`);
 
   ctx.body = {
     success: true,

@@ -1,6 +1,7 @@
 import { createClient } from '@libsql/client/node';
 import config from '../config.js';
 import bcrypt from 'bcryptjs';
+import { getCache, CACHE_KEYS } from './cache.js';
 
 const dbPath = config.database.path;
 const JWT_SECRET = config.jwt?.secret || 'your-secret-key-change-in-production';
@@ -555,6 +556,22 @@ async function initDatabase() {
   `);
 
   await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_product_specs_product ON product_specs(product_id);
+    CREATE INDEX IF NOT EXISTS idx_product_spec_values_spec ON product_spec_values(spec_id);
+    CREATE INDEX IF NOT EXISTS idx_product_spec_values_product ON product_spec_values(product_id);
+    CREATE INDEX IF NOT EXISTS idx_product_skus_product ON product_skus(product_id);
+    CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
+    CREATE INDEX IF NOT EXISTS idx_products_created_at ON products(created_at);
+    CREATE INDEX IF NOT EXISTS idx_promotions_status_time ON promotions(status, start_time, end_time);
+    CREATE INDEX IF NOT EXISTS idx_reviews_product ON reviews(product_id);
+    CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
+    CREATE INDEX IF NOT EXISTS idx_order_items_product ON order_items(product_id);
+    CREATE INDEX IF NOT EXISTS idx_carts_user ON carts(user_id);
+    CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
+    CREATE INDEX IF NOT EXISTS idx_restock_order_items_order ON restock_order_items(restock_order_id);
+  `);
+
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS coupons (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -1000,6 +1017,317 @@ async function calculateCartPromotions(cartItems) {
   };
 }
 
+async function getProductsSpecsBatch(productIds) {
+  if (!productIds || productIds.length === 0) return {};
+  const cache = getCache();
+  const result = {};
+  const uncachedIds = [];
+
+  for (const id of productIds) {
+    const cached = await cache.get(`${CACHE_KEYS.PRODUCT_SPECS}${id}`);
+    if (cached !== null) {
+      result[id] = cached;
+    } else {
+      uncachedIds.push(id);
+    }
+  }
+
+  if (uncachedIds.length === 0) return result;
+
+  const placeholders = uncachedIds.map(() => '?').join(',');
+  const specs = await allQuery(`
+    SELECT * FROM product_specs 
+    WHERE product_id IN (${placeholders}) 
+    ORDER BY product_id, sort_order, id
+  `, uncachedIds);
+
+  const specIds = specs.map(s => s.id);
+  const valuesMap = {};
+  if (specIds.length > 0) {
+    const valuePlaceholders = specIds.map(() => '?').join(',');
+    const values = await allQuery(`
+      SELECT * FROM product_spec_values 
+      WHERE spec_id IN (${valuePlaceholders}) 
+      ORDER BY spec_id, sort_order, id
+    `, specIds);
+    for (const v of values) {
+      if (!valuesMap[v.spec_id]) valuesMap[v.spec_id] = [];
+      valuesMap[v.spec_id].push(v);
+    }
+  }
+
+  for (const spec of specs) {
+    if (!result[spec.product_id]) result[spec.product_id] = [];
+    spec.values = valuesMap[spec.id] || [];
+    result[spec.product_id].push(spec);
+  }
+
+  for (const id of uncachedIds) {
+    if (!result[id]) result[id] = [];
+    await cache.set(`${CACHE_KEYS.PRODUCT_SPECS}${id}`, result[id], CACHE_KEYS.TTL_PRODUCT_DETAIL);
+  }
+
+  return result;
+}
+
+async function getProductsSkusBatch(productIds) {
+  if (!productIds || productIds.length === 0) return {};
+  const cache = getCache();
+  const result = {};
+  const uncachedIds = [];
+
+  for (const id of productIds) {
+    const cached = await cache.get(`${CACHE_KEYS.PRODUCT_SKUS}${id}`);
+    if (cached !== null) {
+      result[id] = cached;
+    } else {
+      uncachedIds.push(id);
+    }
+  }
+
+  if (uncachedIds.length === 0) return result;
+
+  const placeholders = uncachedIds.map(() => '?').join(',');
+  const skus = await allQuery(`
+    SELECT * FROM product_skus 
+    WHERE product_id IN (${placeholders}) 
+    ORDER BY product_id, id
+  `, uncachedIds);
+
+  for (const sku of skus) {
+    if (!result[sku.product_id]) result[sku.product_id] = [];
+    result[sku.product_id].push(sku);
+  }
+
+  for (const id of uncachedIds) {
+    if (!result[id]) result[id] = [];
+    await cache.set(`${CACHE_KEYS.PRODUCT_SKUS}${id}`, result[id], CACHE_KEYS.TTL_PRODUCT_DETAIL);
+  }
+
+  return result;
+}
+
+async function getProductsPriceRangeBatch(productIds) {
+  if (!productIds || productIds.length === 0) return {};
+  const cache = getCache();
+  const result = {};
+  const uncachedIds = [];
+
+  for (const id of productIds) {
+    const cached = await cache.get(`${CACHE_KEYS.PRODUCT_PRICE_RANGE}${id}`);
+    if (cached !== null) {
+      result[id] = cached;
+    } else {
+      uncachedIds.push(id);
+    }
+  }
+
+  if (uncachedIds.length === 0) return result;
+
+  const placeholders = uncachedIds.map(() => '?').join(',');
+  const skuStats = await allQuery(`
+    SELECT 
+      product_id,
+      COALESCE(MIN(price), 0) as min_price,
+      COALESCE(MAX(price), 0) as max_price
+    FROM product_skus 
+    WHERE product_id IN (${placeholders})
+    GROUP BY product_id
+  `, uncachedIds);
+
+  for (const stat of skuStats) {
+    result[stat.product_id] = { min_price: stat.min_price, max_price: stat.max_price };
+  }
+
+  const simpleProducts = await allQuery(`
+    SELECT id, price FROM products 
+    WHERE id IN (${placeholders}) AND has_multi_spec = 0
+  `, uncachedIds);
+
+  for (const p of simpleProducts) {
+    result[p.id] = { min_price: p.price, max_price: p.price };
+  }
+
+  for (const id of uncachedIds) {
+    if (!result[id]) result[id] = { min_price: 0, max_price: 0 };
+    await cache.set(`${CACHE_KEYS.PRODUCT_PRICE_RANGE}${id}`, result[id], CACHE_KEYS.TTL_PRODUCT_DETAIL);
+  }
+
+  return result;
+}
+
+async function getProductsStockBatch(productIds) {
+  if (!productIds || productIds.length === 0) return {};
+  const cache = getCache();
+  const result = {};
+  const uncachedIds = [];
+
+  for (const id of productIds) {
+    const cached = await cache.get(`${CACHE_KEYS.PRODUCT_STOCK}${id}`);
+    if (cached !== null) {
+      result[id] = cached;
+    } else {
+      uncachedIds.push(id);
+    }
+  }
+
+  if (uncachedIds.length === 0) return result;
+
+  const placeholders = uncachedIds.map(() => '?').join(',');
+  const products = await allQuery(`
+    SELECT id, stock, has_multi_spec FROM products WHERE id IN (${placeholders})
+  `, uncachedIds);
+
+  const multiSpecIds = products.filter(p => p.has_multi_spec === 1).map(p => p.id);
+  const skuStockMap = {};
+  if (multiSpecIds.length > 0) {
+    const skuPlaceholders = multiSpecIds.map(() => '?').join(',');
+    const skuStocks = await allQuery(`
+      SELECT product_id, COALESCE(SUM(stock), 0) as total
+      FROM product_skus 
+      WHERE product_id IN (${skuPlaceholders})
+      GROUP BY product_id
+    `, multiSpecIds);
+    for (const s of skuStocks) {
+      skuStockMap[s.product_id] = s.total;
+    }
+  }
+
+  for (const p of products) {
+    if (p.has_multi_spec === 1) {
+      result[p.id] = skuStockMap[p.id] || 0;
+    } else {
+      result[p.id] = p.stock || 0;
+    }
+  }
+
+  for (const id of uncachedIds) {
+    if (result[id] === undefined) result[id] = 0;
+    await cache.set(`${CACHE_KEYS.PRODUCT_STOCK}${id}`, result[id], CACHE_KEYS.TTL_PRODUCT_DETAIL);
+  }
+
+  return result;
+}
+
+async function getProductsActivePromotionBatch(productIds) {
+  if (!productIds || productIds.length === 0) return {};
+  const cache = getCache();
+  const result = {};
+  const uncachedIds = [];
+  const now = new Date().toISOString();
+
+  for (const id of productIds) {
+    const cached = await cache.get(`${CACHE_KEYS.PRODUCT_PROMOTION}${id}`);
+    if (cached !== null) {
+      result[id] = cached;
+    } else {
+      uncachedIds.push(id);
+    }
+  }
+
+  if (uncachedIds.length === 0) return result;
+
+  const placeholders = uncachedIds.map(() => '?').join(',');
+  const promotions = await allQuery(`
+    SELECT p.*, pp.product_id
+    FROM promotions p
+    INNER JOIN promotion_products pp ON p.id = pp.promotion_id
+    WHERE pp.product_id IN (${placeholders})
+      AND p.status = 1 
+      AND p.start_time <= ? 
+      AND p.end_time >= ?
+    ORDER BY pp.product_id, p.created_at DESC
+  `, [...uncachedIds, now, now]);
+
+  for (const promo of promotions) {
+    if (!result[promo.product_id]) {
+      if (promo.rules) {
+        try {
+          promo.rules = JSON.parse(promo.rules);
+        } catch (e) {}
+      }
+      result[promo.product_id] = promo;
+    }
+  }
+
+  for (const id of uncachedIds) {
+    if (!result[id]) result[id] = null;
+    await cache.set(`${CACHE_KEYS.PRODUCT_PROMOTION}${id}`, result[id], CACHE_KEYS.TTL_PROMOTION);
+  }
+
+  return result;
+}
+
+async function enrichProductsBatch(products) {
+  if (!products || products.length === 0) return products;
+  const productIds = products.map(p => p.id);
+
+  const [specsMap, skusMap, priceRangeMap, stockMap, promotionMap] = await Promise.all([
+    getProductsSpecsBatch(productIds.filter(id => products.find(p => p.id === id)?.has_multi_spec === 1)),
+    getProductsSkusBatch(productIds.filter(id => products.find(p => p.id === id)?.has_multi_spec === 1)),
+    getProductsPriceRangeBatch(productIds),
+    getProductsStockBatch(productIds),
+    getProductsActivePromotionBatch(productIds)
+  ]);
+
+  return products.map(product => {
+    const enriched = { ...product };
+    enriched.has_multi_spec = product.has_multi_spec === 1;
+
+    if (enriched.has_multi_spec) {
+      const priceRange = priceRangeMap[product.id] || { min_price: product.price, max_price: product.price };
+      enriched.min_price = priceRange.min_price;
+      enriched.max_price = priceRange.max_price;
+      enriched.total_stock = stockMap[product.id] || 0;
+      enriched.specs = specsMap[product.id] || [];
+      enriched.skus = (skusMap[product.id] || []).map(sku => {
+        const skuWithSpecs = { ...sku };
+        const specsObj = {};
+        if (skuWithSpecs.spec_text) {
+          for (const part of skuWithSpecs.spec_text.split(/[;\/]/)) {
+            const [k, v] = part.split(':');
+            if (k && v) specsObj[k.trim()] = v.trim();
+          }
+        }
+        skuWithSpecs.specs = specsObj;
+        return skuWithSpecs;
+      });
+    } else {
+      enriched.min_price = product.price;
+      enriched.max_price = product.price;
+      enriched.total_stock = product.stock;
+      enriched.specs = [];
+      enriched.skus = [];
+    }
+
+    const promotion = promotionMap[product.id];
+    enriched.promotion = promotion ? {
+      id: promotion.id,
+      name: promotion.name,
+      type: promotion.type,
+      rules: promotion.rules,
+      description: promotion.description,
+      display_text: getPromotionDisplayText(promotion),
+      price: calculatePromotionPrice(promotion, product.price, 1)
+    } : null;
+
+    return enriched;
+  });
+}
+
+async function invalidateProductCache(productId) {
+  const cache = getCache();
+  await cache.delPattern(`${CACHE_KEYS.PRODUCT_LIST}*`);
+  if (productId) {
+    await cache.del(`${CACHE_KEYS.PRODUCT_DETAIL}${productId}`);
+    await cache.del(`${CACHE_KEYS.PRODUCT_SPECS}${productId}`);
+    await cache.del(`${CACHE_KEYS.PRODUCT_SKUS}${productId}`);
+    await cache.del(`${CACHE_KEYS.PRODUCT_STOCK}${productId}`);
+    await cache.del(`${CACHE_KEYS.PRODUCT_PRICE_RANGE}${productId}`);
+    await cache.del(`${CACHE_KEYS.PRODUCT_PROMOTION}${productId}`);
+  }
+}
+
 export {
   db,
   categories,
@@ -1022,5 +1350,12 @@ export {
   getUserCoupons,
   calculateCouponDiscount,
   getCouponDisplayText,
-  calculateCartPromotions
+  calculateCartPromotions,
+  getProductsSpecsBatch,
+  getProductsSkusBatch,
+  getProductsPriceRangeBatch,
+  getProductsStockBatch,
+  getProductsActivePromotionBatch,
+  enrichProductsBatch,
+  invalidateProductCache
 };
