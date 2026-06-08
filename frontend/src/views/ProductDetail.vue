@@ -35,6 +35,7 @@
         <div class="product-info-large">
           <div class="detail-tags">
             <span class="category-tag">{{ product.category }}</span>
+            <span v-if="product.promotion" class="detail-promotion-tag">{{ product.promotion.display_text }}</span>
             <span v-if="product.has_multi_spec" class="detail-spec-tag">多规格</span>
           </div>
           <h1 class="product-title">{{ product.name }}</h1>
@@ -173,6 +174,64 @@
             >
               {{ userReview ? '编辑我的评价' : '发表评价' }}
             </button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="product && (product.promotion || productCoupons.length > 0)" class="promotions-section">
+        <div class="promotions-header">
+          <h2>优惠信息</h2>
+        </div>
+        
+        <div v-if="product.promotion" class="promotion-item">
+          <div class="promotion-badge promotion-type-badge">活动</div>
+          <div class="promotion-content">
+            <div class="promotion-name">{{ product.promotion.name }}</div>
+            <div class="promotion-text">{{ product.promotion.display_text }}</div>
+            <div v-if="product.promotion.description" class="promotion-desc">{{ product.promotion.description }}</div>
+          </div>
+        </div>
+        
+        <div v-if="productCoupons.length > 0" class="coupons-list">
+          <div
+            v-for="coupon in productCoupons"
+            :key="coupon.id"
+            class="coupon-item"
+            :class="{ 'coupon-received': coupon.received }"
+          >
+            <div class="coupon-left">
+              <div class="coupon-value">
+                <template v-if="coupon.type === 'fixed'">
+                  <span class="coupon-symbol">¥</span>
+                  <span class="coupon-amount">{{ coupon.value }}</span>
+                </template>
+                <template v-else>
+                  <span class="coupon-amount">{{ coupon.value * 10 }}</span>
+                  <span class="coupon-symbol">折</span>
+                </template>
+              </div>
+              <div class="coupon-condition">
+                <template v-if="coupon.min_order_amount > 0">
+                  满 ¥{{ coupon.min_order_amount }} 可用
+                </template>
+                <template v-else>
+                  无门槛
+                </template>
+              </div>
+            </div>
+            <div class="coupon-right">
+              <div class="coupon-name">{{ coupon.name }}</div>
+              <div class="coupon-expire">{{ coupon.displayText }}</div>
+              <button
+                class="coupon-receive-btn"
+                :disabled="coupon.received || couponsLoading"
+                @click="handleReceiveCoupon(coupon)"
+              >
+                <span v-if="couponsLoading">领取中...</span>
+                <span v-else-if="coupon.received">已领取</span>
+                <span v-else>立即领取</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -363,6 +422,7 @@ import {
   getMyReviewForProduct
 } from '../api/reviews.js';
 import { recordBrowse, getSimilarProducts } from '../api/recommendations.js';
+import { getProductCoupons, receiveCoupon } from '../api/coupons.js';
 import { useAuth } from '../composables/useAuth.js';
 import { useCart } from '../composables/useCart.js';
 import { useFavorites } from '../composables/useFavorites.js';
@@ -385,6 +445,8 @@ const addToCartQuantity = ref(1);
 const similarProducts = ref([]);
 const similarLoading = ref(false);
 const selectedSpecs = reactive({});
+const productCoupons = ref([]);
+const couponsLoading = ref(false);
 
 const showReviewModal = ref(false);
 const editingReview = ref(null);
@@ -527,6 +589,46 @@ const recordBrowseHistory = async () => {
     await recordBrowse(productId.value);
   } catch (err) {
     console.error('记录浏览历史失败:', err);
+  }
+};
+
+const fetchProductCoupons = async () => {
+  try {
+    const res = await getProductCoupons(productId.value);
+    if (res.data.success) {
+      productCoupons.value = res.data.data;
+    }
+  } catch (err) {
+    console.error('获取商品优惠券失败:', err);
+    productCoupons.value = [];
+  }
+};
+
+const handleReceiveCoupon = async (coupon) => {
+  if (!isAuthenticated.value) {
+    showToast('请先登录后再领取优惠券', 'error');
+    setTimeout(() => {
+      router.push('/login');
+    }, 800);
+    return;
+  }
+  couponsLoading.value = true;
+  try {
+    const res = await receiveCoupon(coupon.id);
+    if (res.data.success) {
+      showToast(res.data.message || '领取成功', 'success');
+      const idx = productCoupons.value.findIndex(c => c.id === coupon.id);
+      if (idx !== -1) {
+        productCoupons.value[idx].received = true;
+      }
+    } else {
+      showToast(res.data.message || '领取失败', 'error');
+    }
+  } catch (err) {
+    console.error('领取优惠券失败:', err);
+    showToast(err.response?.data?.message || '领取失败', 'error');
+  } finally {
+    couponsLoading.value = false;
   }
 };
 
@@ -721,6 +823,7 @@ onMounted(() => {
   fetchUserReview();
   fetchSimilarProducts();
   recordBrowseHistory();
+  fetchProductCoupons();
   if (localStorage.getItem('token')) {
     fetchFavoriteIds();
   }
@@ -733,6 +836,7 @@ watch(productId, () => {
   fetchUserReview();
   fetchSimilarProducts();
   recordBrowseHistory();
+  fetchProductCoupons();
 });
 
 watch(user, (newUser) => {
@@ -1709,5 +1813,195 @@ watch(user, (newUser) => {
   opacity: 0.6;
   cursor: not-allowed;
   transform: none;
+}
+
+.detail-promotion-tag {
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5253 100%);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(255, 107, 107, 0.4);
+}
+
+.promotions-section {
+  background: white;
+  border-radius: 16px;
+  padding: 24px 32px;
+  margin-top: 24px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.promotions-header {
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #eee;
+}
+
+.promotions-header h2 {
+  font-size: 20px;
+  color: #333;
+  margin: 0;
+}
+
+.promotion-item {
+  display: flex;
+  gap: 16px;
+  padding: 16px;
+  background: #fff5f5;
+  border-radius: 12px;
+  margin-bottom: 16px;
+  border: 1px solid #ffe0e0;
+}
+
+.promotion-badge {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: white;
+}
+
+.promotion-type-badge {
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5253 100%);
+}
+
+.promotion-content {
+  flex: 1;
+}
+
+.promotion-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.promotion-text {
+  font-size: 14px;
+  color: #e74c3c;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.promotion-desc {
+  font-size: 13px;
+  color: #888;
+}
+
+.coupons-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.coupon-item {
+  display: flex;
+  background: linear-gradient(135deg, #fff8e1 0%, #fff3cd 100%);
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #ffe58f;
+}
+
+.coupon-received {
+  opacity: 0.6;
+}
+
+.coupon-left {
+  background: linear-gradient(135deg, #ff9f43 0%, #ee8839 100%);
+  color: white;
+  padding: 16px 20px;
+  min-width: 120px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.coupon-value {
+  display: flex;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+
+.coupon-symbol {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.coupon-amount {
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.coupon-condition {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.coupon-right {
+  flex: 1;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+}
+
+.coupon-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #333;
+}
+
+.coupon-expire {
+  font-size: 12px;
+  color: #888;
+}
+
+.coupon-receive-btn {
+  align-self: flex-start;
+  padding: 6px 16px;
+  background: linear-gradient(135deg, #ff9f43 0%, #ee8839 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.coupon-receive-btn:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.coupon-receive-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+@media (max-width: 768px) {
+  .promotions-section {
+    padding: 16px;
+  }
+  .coupon-item {
+    flex-direction: column;
+  }
+  .coupon-left {
+    min-width: auto;
+    padding: 12px;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 12px;
+  }
 }
 </style>

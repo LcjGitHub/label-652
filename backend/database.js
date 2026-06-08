@@ -521,6 +521,186 @@ async function initDatabase() {
 
     console.log('已插入示例商品规格数据');
   }
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS promotions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL CHECK (type IN ('full_reduction', 'discount', 'buy_one_get_one')),
+      description TEXT,
+      start_time DATETIME NOT NULL,
+      end_time DATETIME NOT NULL,
+      status INTEGER DEFAULT 1,
+      rules TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS promotion_products (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      promotion_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (promotion_id) REFERENCES promotions(id) ON DELETE CASCADE,
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+      UNIQUE(promotion_id, product_id)
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_promotion_products_promotion ON promotion_products(promotion_id);
+    CREATE INDEX IF NOT EXISTS idx_promotion_products_product ON promotion_products(product_id);
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS coupons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL CHECK (type IN ('fixed', 'percent')),
+      value REAL NOT NULL,
+      min_amount REAL DEFAULT 0,
+      total_count INTEGER DEFAULT 0,
+      used_count INTEGER DEFAULT 0,
+      start_time DATETIME NOT NULL,
+      end_time DATETIME NOT NULL,
+      status INTEGER DEFAULT 1,
+      description TEXT,
+      per_user_limit INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS user_coupons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      coupon_id INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'unused' CHECK (status IN ('unused', 'used', 'expired')),
+      used_order_id INTEGER,
+      received_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      used_at DATETIME,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (coupon_id) REFERENCES coupons(id) ON DELETE CASCADE,
+      FOREIGN KEY (used_order_id) REFERENCES orders(id) ON DELETE SET NULL
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_user_coupons_user ON user_coupons(user_id);
+    CREATE INDEX IF NOT EXISTS idx_user_coupons_coupon ON user_coupons(coupon_id);
+    CREATE INDEX IF NOT EXISTS idx_user_coupons_status ON user_coupons(status);
+  `);
+
+  await addColumnIfNotExists('orders', 'discount_amount', 'REAL DEFAULT 0');
+  await addColumnIfNotExists('orders', 'coupon_id', 'INTEGER');
+  await addColumnIfNotExists('orders', 'promotion_discount', 'REAL DEFAULT 0');
+  await addColumnIfNotExists('orders', 'coupon_discount', 'REAL DEFAULT 0');
+
+  const promotionCountResult = await db.execute('SELECT COUNT(*) as count FROM promotions');
+  if (promotionCountResult.rows[0].count === 0) {
+    const now = new Date();
+    const future = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    const samplePromotions = [
+      {
+        name: '电子产品8折优惠',
+        type: 'discount',
+        description: '全场电子产品享8折优惠',
+        rules: JSON.stringify({ discount: 0.8 }),
+        products: [1, 2, 3]
+      },
+      {
+        name: '满299减50',
+        type: 'full_reduction',
+        description: '服装类满299元减50元',
+        rules: JSON.stringify({ threshold: 299, reduction: 50 }),
+        products: [4, 5, 6]
+      },
+      {
+        name: '食品买一送一',
+        type: 'buy_one_get_one',
+        description: '指定食品买一送一',
+        rules: JSON.stringify({}),
+        products: [7, 8, 9]
+      }
+    ];
+
+    for (const promo of samplePromotions) {
+      const promoResult = await runQuery(
+        `INSERT INTO promotions (name, type, description, start_time, end_time, status, rules)
+         VALUES (?, ?, ?, ?, ?, 1, ?)`,
+        [promo.name, promo.type, promo.description, now.toISOString(), future.toISOString(), promo.rules]
+      );
+      const promotionId = promoResult.lastID;
+
+      for (const productId of promo.products) {
+        await runQuery(
+          'INSERT INTO promotion_products (promotion_id, product_id) VALUES (?, ?)',
+          [promotionId, productId]
+        );
+      }
+    }
+
+    console.log('已插入示例促销活动数据');
+  }
+
+  const couponCountResult = await db.execute('SELECT COUNT(*) as count FROM coupons');
+  if (couponCountResult.rows[0].count === 0) {
+    const now = new Date();
+    const future = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    const sampleCoupons = [
+      {
+        name: '新人50元优惠券',
+        type: 'fixed',
+        value: 50,
+        min_amount: 200,
+        total_count: 100,
+        description: '新用户专享，满200元可用',
+        per_user_limit: 1
+      },
+      {
+        name: '全场9折优惠券',
+        type: 'percent',
+        value: 0.9,
+        min_amount: 100,
+        total_count: 500,
+        description: '全场通用9折，满100元可用',
+        per_user_limit: 2
+      },
+      {
+        name: '满500减100',
+        type: 'fixed',
+        value: 100,
+        min_amount: 500,
+        total_count: 200,
+        description: '满500元减100元',
+        per_user_limit: 1
+      },
+      {
+        name: '食品满100减20',
+        type: 'fixed',
+        value: 20,
+        min_amount: 100,
+        total_count: 300,
+        description: '食品类满100元减20元',
+        per_user_limit: 1
+      }
+    ];
+
+    for (const coupon of sampleCoupons) {
+      await runQuery(
+        `INSERT INTO coupons (name, type, value, min_amount, total_count, used_count, start_time, end_time, status, description, per_user_limit)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, 1, ?, ?)`,
+        [coupon.name, coupon.type, coupon.value, coupon.min_amount, coupon.total_count, now.toISOString(), future.toISOString(), coupon.description, coupon.per_user_limit]
+      );
+    }
+
+    console.log('已插入示例优惠券数据');
+  }
 }
 
 async function runQuery(sql, args = []) {
@@ -592,6 +772,224 @@ async function getProductPriceRange(productId) {
   return result || { min_price: product.price, max_price: product.price };
 }
 
+async function getProductPromotions(productId) {
+  const now = new Date().toISOString();
+  return await allQuery(`
+    SELECT p.* FROM promotions p
+    INNER JOIN promotion_products pp ON p.id = pp.promotion_id
+    WHERE pp.product_id = ? 
+      AND p.status = 1 
+      AND p.start_time <= ? 
+      AND p.end_time >= ?
+    ORDER BY p.created_at DESC
+  `, [productId, now, now]);
+}
+
+async function getAllActivePromotions() {
+  const now = new Date().toISOString();
+  const promotions = await allQuery(`
+    SELECT * FROM promotions 
+    WHERE status = 1 AND start_time <= ? AND end_time >= ?
+    ORDER BY created_at DESC
+  `, [now, now]);
+
+  for (const promo of promotions) {
+    promo.products = await allQuery(`
+      SELECT product_id FROM promotion_products WHERE promotion_id = ?
+    `, [promo.id]);
+    if (promo.rules) {
+      try {
+        promo.rules = JSON.parse(promo.rules);
+      } catch (e) {}
+    }
+  }
+  return promotions;
+}
+
+async function getProductActivePromotion(productId) {
+  const promotions = await getProductPromotions(productId);
+  if (promotions.length === 0) return null;
+
+  const now = new Date().toISOString();
+  const activePromos = promotions.filter(p => {
+    return p.status === 1 && p.start_time <= now && p.end_time >= now;
+  });
+
+  if (activePromos.length === 0) return null;
+
+  const bestPromo = activePromos[0];
+  if (bestPromo.rules) {
+    try {
+      bestPromo.rules = JSON.parse(bestPromo.rules);
+    } catch (e) {}
+  }
+  return bestPromo;
+}
+
+function calculatePromotionPrice(promotion, originalPrice, quantity = 1) {
+  if (!promotion) return { finalPrice: originalPrice * quantity, discount: 0, promotion };
+
+  const totalOriginal = originalPrice * quantity;
+
+  switch (promotion.type) {
+    case 'discount': {
+      const discount = promotion.rules?.discount || 1;
+      const finalPrice = totalOriginal * discount;
+      return {
+        finalPrice: Math.round(finalPrice * 100) / 100,
+        discount: Math.round((totalOriginal - finalPrice) * 100) / 100,
+        promotion
+      };
+    }
+    case 'full_reduction': {
+      const threshold = promotion.rules?.threshold || 0;
+      const reduction = promotion.rules?.reduction || 0;
+      if (totalOriginal >= threshold) {
+        return {
+          finalPrice: Math.round((totalOriginal - reduction) * 100) / 100,
+          discount: reduction,
+          promotion
+        };
+      }
+      return { finalPrice: totalOriginal, discount: 0, promotion };
+    }
+    case 'buy_one_get_one': {
+      const effectiveQuantity = Math.ceil(quantity / 2);
+      const finalPrice = originalPrice * effectiveQuantity;
+      return {
+        finalPrice: Math.round(finalPrice * 100) / 100,
+        discount: Math.round((totalOriginal - finalPrice) * 100) / 100,
+        promotion
+      };
+    }
+    default:
+      return { finalPrice: totalOriginal, discount: 0, promotion };
+  }
+}
+
+function getPromotionDisplayText(promotion) {
+  if (!promotion) return null;
+
+  switch (promotion.type) {
+    case 'discount':
+      const discount = promotion.rules?.discount || 1;
+      const discountPercent = Math.round(discount * 10);
+      return `${discountPercent}折`;
+    case 'full_reduction':
+      const threshold = promotion.rules?.threshold || 0;
+      const reduction = promotion.rules?.reduction || 0;
+      return `满${threshold}减${reduction}`;
+    case 'buy_one_get_one':
+      return '买一送一';
+    default:
+      return null;
+  }
+}
+
+async function getAvailableCoupons() {
+  const now = new Date().toISOString();
+  return await allQuery(`
+    SELECT * FROM coupons 
+    WHERE status = 1 
+      AND start_time <= ? 
+      AND end_time >= ?
+      AND (total_count = 0 OR used_count < total_count)
+    ORDER BY created_at DESC
+  `, [now, now]);
+}
+
+async function getUserCoupons(userId, status = null) {
+  let whereClause = 'WHERE uc.user_id = ?';
+  const params = [userId];
+
+  if (status) {
+    whereClause += ' AND uc.status = ?';
+    params.push(status);
+  }
+
+  const userCoupons = await allQuery(`
+    SELECT uc.*, c.name, c.type, c.value, c.min_amount, c.description, c.start_time, c.end_time
+    FROM user_coupons uc
+    INNER JOIN coupons c ON uc.coupon_id = c.id
+    ${whereClause}
+    ORDER BY uc.received_at DESC
+  `, params);
+
+  const now = new Date().toISOString();
+  for (const uc of userCoupons) {
+    if (uc.status === 'unused' && uc.end_time < now) {
+      uc.status = 'expired';
+    }
+  }
+  return userCoupons;
+}
+
+function calculateCouponDiscount(coupon, totalAmount) {
+  if (!coupon) return { discount: 0, valid: false };
+
+  if (totalAmount < (coupon.min_amount || 0)) {
+    return { discount: 0, valid: false, reason: `未满${coupon.min_amount}元` };
+  }
+
+  if (coupon.type === 'fixed') {
+    return {
+      discount: Math.min(coupon.value, totalAmount),
+      valid: true
+    };
+  } else if (coupon.type === 'percent') {
+    const discount = totalAmount * (1 - coupon.value);
+    return {
+      discount: Math.round(discount * 100) / 100,
+      valid: true
+    };
+  }
+  return { discount: 0, valid: false };
+}
+
+function getCouponDisplayText(coupon) {
+  if (!coupon) return null;
+  if (coupon.type === 'fixed') {
+    return `¥${coupon.value}`;
+  } else if (coupon.type === 'percent') {
+    const percent = Math.round(coupon.value * 10);
+    return `${percent}折`;
+  }
+  return null;
+}
+
+async function calculateCartPromotions(cartItems) {
+  let totalPromotionDiscount = 0;
+  const itemPromotions = [];
+
+  for (const item of cartItems) {
+    const price = item.sku_price != null ? item.sku_price : item.product_price;
+    const promotion = await getProductActivePromotion(item.product_id);
+    const result = calculatePromotionPrice(promotion, price, item.quantity);
+
+    itemPromotions.push({
+      product_id: item.product_id,
+      sku_id: item.sku_id || null,
+      originalPrice: price,
+      originalSubtotal: price * item.quantity,
+      finalSubtotal: result.finalPrice,
+      discount: result.discount,
+      promotion: promotion ? {
+        id: promotion.id,
+        name: promotion.name,
+        type: promotion.type,
+        displayText: getPromotionDisplayText(promotion)
+      } : null
+    });
+
+    totalPromotionDiscount += result.discount;
+  }
+
+  return {
+    itemPromotions,
+    totalPromotionDiscount: Math.round(totalPromotionDiscount * 100) / 100
+  };
+}
+
 export {
   db,
   categories,
@@ -604,5 +1002,15 @@ export {
   getProductSpecs,
   getProductSkus,
   getProductStock,
-  getProductPriceRange
+  getProductPriceRange,
+  getProductPromotions,
+  getAllActivePromotions,
+  getProductActivePromotion,
+  calculatePromotionPrice,
+  getPromotionDisplayText,
+  getAvailableCoupons,
+  getUserCoupons,
+  calculateCouponDiscount,
+  getCouponDisplayText,
+  calculateCartPromotions
 };

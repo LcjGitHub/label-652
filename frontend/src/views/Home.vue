@@ -53,6 +53,7 @@
             @error="handleImageError($event)"
           />
           <span class="category-tag">{{ product.category }}</span>
+          <span v-if="product.promotion" class="promotion-tag">{{ product.promotion.display_text }}</span>
           <span v-if="product.has_multi_spec" class="spec-tag">多规格</span>
           <span v-if="product.is_alert" class="alert-tag">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -1632,6 +1633,21 @@ const quickAddToCart = async (product) => {
   border-radius: 12px;
   font-size: 12px;
   font-weight: 500;
+}
+
+.promotion-tag {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5253 100%);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  z-index: 2;
+  margin-left: 84px;
+  box-shadow: 0 2px 8px rgba(255, 107, 107, 0.4);
 }
 
 .alert-tag {

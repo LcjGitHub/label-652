@@ -9,7 +9,9 @@ import {
   getProductSpecs,
   getProductSkus,
   getProductPriceRange,
-  getProductStock
+  getProductStock,
+  getProductActivePromotion,
+  getPromotionDisplayText
 } from '../database.js';
 import { authMiddleware, optionalAuthMiddleware } from '../middleware/auth.js';
 import { getProductThreshold, getGlobalConfig } from './stockAlerts.js';
@@ -108,6 +110,15 @@ router.get('/', optionalAuthMiddleware, async (ctx) => {
     const displayStock = enriched.has_multi_spec ? enriched.total_stock : p.stock;
     const alertEnabled = p.alert_enabled === 1 && globalEnabled;
     const isAlert = alertEnabled && displayStock < p.alert_threshold;
+
+    const promotion = await getProductActivePromotion(p.id);
+    const promotionData = promotion ? {
+      id: promotion.id,
+      name: promotion.name,
+      type: promotion.type,
+      display_text: getPromotionDisplayText(promotion)
+    } : null;
+
     productsWithAlert.push({
       id: enriched.id,
       name: enriched.name,
@@ -127,7 +138,8 @@ router.get('/', optionalAuthMiddleware, async (ctx) => {
       alert_threshold: p.alert_threshold,
       alert_enabled: alertEnabled,
       is_alert: isAlert,
-      favorited_at: p.favorited_at
+      favorited_at: p.favorited_at,
+      promotion: promotionData
     });
   }
 
@@ -439,6 +451,16 @@ router.get('/:id', async (ctx) => {
   const alertEnabled = product.alert_enabled === 1 && globalConfig.enabled === 1;
   const isAlert = alertEnabled && displayStock < product.alert_threshold;
 
+  const promotion = await getProductActivePromotion(id);
+  const promotionData = promotion ? {
+    id: promotion.id,
+    name: promotion.name,
+    type: promotion.type,
+    rules: promotion.rules,
+    description: promotion.description,
+    display_text: getPromotionDisplayText(promotion)
+  } : null;
+
   ctx.body = {
     success: true,
     data: {
@@ -459,7 +481,8 @@ router.get('/:id', async (ctx) => {
       updated_at: enriched.updated_at,
       alert_threshold: product.alert_threshold,
       alert_enabled: alertEnabled,
-      is_alert: isAlert
+      is_alert: isAlert,
+      promotion: promotionData
     }
   };
 });

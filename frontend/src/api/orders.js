@@ -1,6 +1,6 @@
 import api from './products.js';
 
-export const getOrders = (params) => {
+export const getOrders = (params = {}) => {
   return api.get('/orders', { params });
 };
 
@@ -18,4 +18,12 @@ export const cancelOrder = (id) => {
 
 export const updateOrderStatus = (id, status) => {
   return api.put(`/orders/${id}/status`, { status });
+};
+
+export const calculateOrder = (data = {}) => {
+  return api.post('/orders/calculate', data);
+};
+
+export const getMyAvailableCoupons = (params = {}) => {
+  return api.get('/orders/my/available-coupons', { params });
 };

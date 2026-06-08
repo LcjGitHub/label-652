@@ -12,6 +12,8 @@ import searchRouter from './routes/search.js';
 import recommendationsRouter from './routes/recommendations.js';
 import { router as stockAlertsRouter } from './routes/stockAlerts.js';
 import favoritesRouter from './routes/favorites.js';
+import promotionsRouter from './routes/promotions.js';
+import couponsRouter from './routes/coupons.js';
 import { dbReady } from './database.js';
 import config from '../config.js';
 
@@ -69,6 +71,12 @@ app.use(stockAlertsRouter.allowedMethods());
 
 app.use(favoritesRouter.routes());
 app.use(favoritesRouter.allowedMethods());
+
+app.use(promotionsRouter.routes());
+app.use(promotionsRouter.allowedMethods());
+
+app.use(couponsRouter.routes());
+app.use(couponsRouter.allowedMethods());
 
 async function checkPortAvailable(port, host) {
   return new Promise((resolve, reject) => {

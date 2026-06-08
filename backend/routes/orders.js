@@ -1,5 +1,13 @@
 import Router from 'koa-router';
-import { runQuery, getQuery, allQuery } from '../database.js';
+import {
+  runQuery,
+  getQuery,
+  allQuery,
+  getProductActivePromotion,
+  calculatePromotionPrice,
+  calculateCouponDiscount,
+  calculateCartPromotions
+} from '../database.js';
 import { authMiddleware } from '../middleware/auth.js';
 
 const router = new Router({ prefix: '/api/orders' });
@@ -99,7 +107,7 @@ const rollbackStock = async (orderId) => {
 
 router.post('/create', authMiddleware, async (ctx) => {
   const userId = ctx.state.user.id;
-  const { shipping_address, payment_method = 'cod', remark = '' } = ctx.request.body;
+  const { shipping_address, payment_method = 'cod', remark = '', user_coupon_id = null } = ctx.request.body;
 
   if (!shipping_address || shipping_address.trim() === '') {
     ctx.status = 400;
@@ -157,25 +165,89 @@ router.post('/create', authMiddleware, async (ctx) => {
     item._effectiveStock = effectiveStock;
   }
 
-  const orderNo = generateOrderNo();
-  const totalAmount = cartItems.reduce((sum, item) => sum + item._effectivePrice * item.quantity, 0);
+  const originalTotal = cartItems.reduce((sum, item) => sum + item._effectivePrice * item.quantity, 0);
 
+  const promotionResult = await calculateCartPromotions(cartItems);
+  const promotionDiscount = promotionResult.totalPromotionDiscount;
+
+  let couponDiscount = 0;
+  let couponId = null;
+
+  if (user_coupon_id) {
+    const userCoupon = await getQuery(`
+      SELECT uc.*, c.name, c.type, c.value, c.min_amount, c.start_time, c.end_time, c.status as coupon_status
+      FROM user_coupons uc
+      INNER JOIN coupons c ON uc.coupon_id = c.id
+      WHERE uc.id = ? AND uc.user_id = ?
+    `, [user_coupon_id, userId]);
+
+    if (!userCoupon) {
+      ctx.status = 400;
+      ctx.body = { success: false, message: '优惠券不存在' };
+      return;
+    }
+
+    if (userCoupon.status === 'used') {
+      ctx.status = 400;
+      ctx.body = { success: false, message: '该优惠券已使用' };
+      return;
+    }
+
+    const now = new Date().toISOString();
+    if (userCoupon.status === 'expired' || userCoupon.end_time < now) {
+      ctx.status = 400;
+      ctx.body = { success: false, message: '该优惠券已过期' };
+      return;
+    }
+
+    if (userCoupon.coupon_status !== 1) {
+      ctx.status = 400;
+      ctx.body = { success: false, message: '该优惠券已失效' };
+      return;
+    }
+
+    const amountAfterPromotion = originalTotal - promotionDiscount;
+    const couponData = {
+      type: userCoupon.type,
+      value: userCoupon.value,
+      min_amount: userCoupon.min_amount
+    };
+    const couponValidation = calculateCouponDiscount(couponData, amountAfterPromotion);
+
+    if (!couponValidation.valid) {
+      ctx.status = 400;
+      ctx.body = { success: false, message: couponValidation.reason || '优惠券不可用' };
+      return;
+    }
+
+    couponDiscount = couponValidation.discount;
+    couponId = userCoupon.coupon_id;
+  }
+
+  const totalDiscount = promotionDiscount + couponDiscount;
+  const totalAmount = Math.max(0, Math.round((originalTotal - totalDiscount) * 100) / 100);
+
+  const orderNo = generateOrderNo();
   const result = await runQuery(`
-    INSERT INTO orders (user_id, order_no, total_amount, status, shipping_address, payment_method, remark)
-    VALUES (?, ?, ?, 'pending', ?, ?, ?)
-  `, [userId, orderNo, totalAmount, shipping_address, payment_method, remark]);
+    INSERT INTO orders (user_id, order_no, total_amount, status, shipping_address, payment_method, remark, discount_amount, coupon_id, promotion_discount, coupon_discount)
+    VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
+  `, [userId, orderNo, totalAmount, shipping_address, payment_method, remark, totalDiscount, couponId, promotionDiscount, couponDiscount]);
 
   const orderId = result.lastID;
 
   for (const item of cartItems) {
     const hasSku = item.sku_id != null;
-    const subtotal = item._effectivePrice * item.quantity;
+    const itemPromo = promotionResult.itemPromotions.find(
+      p => p.product_id === item.product_id && p.sku_id === (item.sku_id || null)
+    );
+    const finalPrice = itemPromo ? Math.round((itemPromo.finalSubtotal / item.quantity) * 100) / 100 : item._effectivePrice;
+    const subtotal = itemPromo ? itemPromo.finalSubtotal : item._effectivePrice * item.quantity;
     const skuName = hasSku ? (item.sku_name || item.spec_text || '') : '';
 
     await runQuery(`
       INSERT INTO order_items (order_id, product_id, product_name, product_price, quantity, subtotal, product_image, sku_id, sku_name)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [orderId, item.product_id, item.name, item._effectivePrice, item.quantity, subtotal, item.image, hasSku ? item.sku_id : null, skuName || null]);
+    `, [orderId, item.product_id, item.name, finalPrice, item.quantity, subtotal, item.image, hasSku ? item.sku_id : null, skuName || null]);
 
     if (hasSku) {
       await runQuery(`
@@ -188,6 +260,17 @@ router.post('/create', authMiddleware, async (ctx) => {
     }
   }
 
+  if (user_coupon_id) {
+    await runQuery(`
+      UPDATE user_coupons SET status = 'used', used_order_id = ?, used_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND user_id = ?
+    `, [orderId, user_coupon_id, userId]);
+
+    await runQuery(`
+      UPDATE coupons SET used_count = used_count + 1 WHERE id = ?
+    `, [couponId]);
+  }
+
   await runQuery('DELETE FROM carts WHERE user_id = ?', [userId]);
 
   const order = await getQuery('SELECT * FROM orders WHERE id = ?', [orderId]);
@@ -197,6 +280,161 @@ router.post('/create', authMiddleware, async (ctx) => {
     success: true,
     message: '订单创建成功',
     data: order
+  };
+});
+
+router.post('/calculate', authMiddleware, async (ctx) => {
+  const userId = ctx.state.user.id;
+  const { user_coupon_id = null } = ctx.request.body;
+
+  const cartItems = await allQuery(`
+    SELECT 
+      c.*,
+      p.name,
+      p.price as product_price,
+      p.stock as product_stock,
+      p.image,
+      p.has_multi_spec,
+      sk.id as sku_key,
+      sk.price as sku_price,
+      sk.stock as sku_stock,
+      sk.spec_text
+    FROM carts c
+    INNER JOIN products p ON c.product_id = p.id
+    LEFT JOIN product_skus sk ON c.sku_id = sk.id
+    WHERE c.user_id = ?
+    ORDER BY c.created_at DESC
+  `, [userId]);
+
+  if (cartItems.length === 0) {
+    ctx.body = {
+      success: true,
+      data: {
+        original_total: 0,
+        promotion_discount: 0,
+        coupon_discount: 0,
+        total_discount: 0,
+        final_total: 0,
+        item_details: []
+      }
+    };
+    return;
+  }
+
+  for (const item of cartItems) {
+    const hasSku = item.sku_id != null;
+    item._effectivePrice = hasSku ? item.sku_price : item.product_price;
+  }
+
+  const originalTotal = cartItems.reduce((sum, item) => sum + item._effectivePrice * item.quantity, 0);
+
+  const promotionResult = await calculateCartPromotions(cartItems);
+  const promotionDiscount = promotionResult.totalPromotionDiscount;
+
+  let couponDiscount = 0;
+  let couponInfo = null;
+
+  if (user_coupon_id) {
+    const userCoupon = await getQuery(`
+      SELECT uc.*, c.name, c.type, c.value, c.min_amount, c.start_time, c.end_time, c.status as coupon_status
+      FROM user_coupons uc
+      INNER JOIN coupons c ON uc.coupon_id = c.id
+      WHERE uc.id = ? AND uc.user_id = ?
+    `, [user_coupon_id, userId]);
+
+    if (userCoupon && userCoupon.status === 'unused' && userCoupon.coupon_status === 1) {
+      const now = new Date().toISOString();
+      if (userCoupon.end_time >= now) {
+        const amountAfterPromotion = originalTotal - promotionDiscount;
+        const couponData = {
+          type: userCoupon.type,
+          value: userCoupon.value,
+          min_amount: userCoupon.min_amount
+        };
+        const couponValidation = calculateCouponDiscount(couponData, amountAfterPromotion);
+        if (couponValidation.valid) {
+          couponDiscount = couponValidation.discount;
+          couponInfo = {
+            id: userCoupon.id,
+            name: userCoupon.name,
+            discount: couponDiscount
+          };
+        }
+      }
+    }
+  }
+
+  const totalDiscount = promotionDiscount + couponDiscount;
+  const finalTotal = Math.max(0, Math.round((originalTotal - totalDiscount) * 100) / 100);
+
+  ctx.body = {
+    success: true,
+    data: {
+      original_total: originalTotal,
+      promotion_discount: promotionDiscount,
+      coupon_discount: couponDiscount,
+      total_discount: totalDiscount,
+      final_total: finalTotal,
+      item_details: promotionResult.itemPromotions,
+      selected_coupon: couponInfo
+    }
+  };
+});
+
+router.get('/my/available-coupons', authMiddleware, async (ctx) => {
+  const userId = ctx.state.user.id;
+  const { total_amount = 0 } = ctx.query;
+
+  const userCoupons = await allQuery(`
+    SELECT uc.*, c.name, c.type, c.value, c.min_amount, c.description, c.start_time, c.end_time
+    FROM user_coupons uc
+    INNER JOIN coupons c ON uc.coupon_id = c.id
+    WHERE uc.user_id = ? AND uc.status = 'unused' AND c.status = 1
+    ORDER BY uc.received_at DESC
+  `, [userId]);
+
+  const now = new Date().toISOString();
+  const validCoupons = [];
+  const invalidCoupons = [];
+
+  for (const uc of userCoupons) {
+    if (uc.end_time < now) {
+      invalidCoupons.push({ ...uc, invalid_reason: '已过期' });
+      continue;
+    }
+
+    const couponData = {
+      type: uc.type,
+      value: uc.value,
+      min_amount: uc.min_amount
+    };
+    const validation = calculateCouponDiscount(couponData, parseFloat(total_amount) || 0);
+
+    const displayText = uc.type === 'fixed' ? `¥${uc.value}` : `${Math.round(uc.value * 10)}折`;
+
+    if (validation.valid) {
+      validCoupons.push({
+        ...uc,
+        display_text: displayText,
+        discount: validation.discount,
+        available: true
+      });
+    } else {
+      invalidCoupons.push({
+        ...uc,
+        display_text: displayText,
+        invalid_reason: validation.reason || '不可用',
+        available: false
+      });
+    }
+  }
+
+  ctx.body = {
+    success: true,
+    data: {
+      available: validCoupons,
+      unavailable: invalidCoupons
+    }
   };
 });
 
