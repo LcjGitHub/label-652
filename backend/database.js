@@ -329,7 +329,7 @@ async function initDatabase() {
   const productCountResult = await db.execute('SELECT COUNT(*) as count FROM products');
   const productCount = productCountResult.rows[0].count;
 
-  if (productCount === 0) {
+  if (productCount === 0 && process.env.NODE_ENV !== 'test') {
     const sampleProducts = [
       { name: 'iPhone 15', desc: '最新款苹果手机，搭载 A17 芯片', price: 6999, category: '电子产品', stock: 50, image: '/products/iphone15-phone.svg' },
       { name: 'MacBook Pro', desc: '14英寸专业笔记本电脑', price: 14999, category: '电子产品', stock: 30, image: '/products/macbook-laptop.svg' },
@@ -367,7 +367,7 @@ async function initDatabase() {
   const userCountResult = await db.execute('SELECT COUNT(*) as count FROM users');
   const userCount = userCountResult.rows[0].count;
 
-  if (userCount === 0) {
+  if (userCount === 0 && process.env.NODE_ENV !== 'test') {
     const hashedPassword = await bcrypt.hash('123456', 10);
     const sampleUsers = [
       { username: '张三', email: 'zhangsan@example.com', password: hashedPassword, avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhangsan' },
@@ -386,7 +386,7 @@ async function initDatabase() {
   const reviewCountResult = await db.execute('SELECT COUNT(*) as count FROM reviews');
   const reviewCount = reviewCountResult.rows[0].count;
 
-  if (reviewCount === 0) {
+  if (reviewCount === 0 && process.env.NODE_ENV !== 'test') {
     const sampleReviews = [
       { user_id: 1, product_id: 1, rating: 5, content: '非常好用，性能强劲，拍照效果也很棒！', images: '[]' },
       { user_id: 2, product_id: 1, rating: 4, content: '整体不错，就是价格有点贵。', images: '[]' },
@@ -410,7 +410,7 @@ async function initDatabase() {
   }
 
   const globalConfigCount = await db.execute('SELECT COUNT(*) as count FROM stock_alert_global_config');
-  if (globalConfigCount.rows[0].count === 0) {
+  if (globalConfigCount.rows[0].count === 0 && process.env.NODE_ENV !== 'test') {
     await db.execute(`
       INSERT INTO stock_alert_global_config (default_threshold, enabled, notify_email)
       VALUES (20, 1, 'admin@example.com')
@@ -419,7 +419,7 @@ async function initDatabase() {
   }
 
   const alertConfigCount = await db.execute('SELECT COUNT(*) as count FROM stock_alert_config');
-  if (alertConfigCount.rows[0].count === 0) {
+  if (alertConfigCount.rows[0].count === 0 && process.env.NODE_ENV !== 'test') {
     const sampleThresholds = [
       { product_id: 1, threshold: 15 },
       { product_id: 2, threshold: 10 },
@@ -448,7 +448,7 @@ async function initDatabase() {
   }
 
   const skuCountResult = await db.execute('SELECT COUNT(*) as count FROM product_skus');
-  if (skuCountResult.rows[0].count === 0) {
+  if (skuCountResult.rows[0].count === 0 && process.env.NODE_ENV !== 'test') {
     const sampleSpecProducts = [
       { product_id: 4, name: '运动T恤', specs: [
         { name: '颜色', values: ['白色', '黑色', '蓝色'] },
@@ -621,7 +621,7 @@ async function initDatabase() {
   await addColumnIfNotExists('coupons', 'category', 'TEXT');
 
   const promotionCountResult = await db.execute('SELECT COUNT(*) as count FROM promotions');
-  if (promotionCountResult.rows[0].count === 0) {
+  if (promotionCountResult.rows[0].count === 0 && process.env.NODE_ENV !== 'test') {
     const now = new Date();
     const future = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
@@ -669,7 +669,7 @@ async function initDatabase() {
   }
 
   const couponCountResult = await db.execute('SELECT COUNT(*) as count FROM coupons');
-  if (couponCountResult.rows[0].count === 0) {
+  if (couponCountResult.rows[0].count === 0 && process.env.NODE_ENV !== 'test') {
     const now = new Date();
     const future = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
